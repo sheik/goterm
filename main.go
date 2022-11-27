@@ -10,7 +10,6 @@ import "C"
 import (
 	"fmt"
 	"unsafe"
-	"github.com/sheik/goterm/xlib"
 )
 
 func UnpackKeypress(event C.XEvent) {
@@ -34,7 +33,7 @@ func main() {
 
 	var screen = C.XDefaultScreen(display)
 
-	var window = xlib.
+	var window = XCreateSimpleWindow()
 
 	var window = C.XCreateSimpleWindow(display, C.XRootWindow(display, screen), 10, 10, 200, 200,
 		1, C.XBlackPixel(display, screen), C.XWhitePixel(display, screen))
