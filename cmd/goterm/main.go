@@ -9,7 +9,6 @@ import "C"
 
 import (
 	"fmt"
-	"github.com/sheik/goterm/xlib"
 	"unsafe"
 )
 
@@ -33,8 +32,6 @@ func main() {
 	}
 
 	var screen = C.XDefaultScreen(display)
-
-	var window = xlib.XCreateSimpleWindow()
 
 	var window = C.XCreateSimpleWindow(display, C.XRootWindow(display, screen), 10, 10, 200, 200,
 		1, C.XBlackPixel(display, screen), C.XWhitePixel(display, screen))

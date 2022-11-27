@@ -15,6 +15,8 @@ TRANSLATOR:
     defines: expand
   Rules: 
     global: 
+      - {action: accept, from: "^XOpenDisplay"}
+      - {action: accept, from: "^XDefaultScreen"}
       - {action: accept, from: "^XMapWindow"}
       - {action: accept, from: "^XNextEvent"}
       - {action: accept, from: "^XSelectInput"}
@@ -27,6 +29,7 @@ TRANSLATOR:
       - {action: accept, from: "^XEvent"}
       - {action: accept, from: "^XKeyboardEvent"}
       - {action: accept, from: "^Display"}
+      - {action: accept, from: "^Screen"}
       - {transform: export}
     private:
       - {action: accept, from: "^"}
