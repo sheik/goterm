@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -68,7 +69,7 @@ type Cursor struct {
 func NewTerminal() (terminal *Terminal, err error) {
 	terminal = &Terminal{width: 120, height: 34}
 
-	//	os.Setenv("TERM", "dumb")
+	os.Setenv("TERM", "xterm-256color")
 	os.Setenv("PS1", "bash$ ")
 	c := exec.Command("/bin/bash")
 	terminal.pty, err = pty.Start(c)
@@ -144,8 +145,8 @@ func NewTerminal() (terminal *Terminal, err error) {
 				os.Exit(0)
 			}
 			buf = buf[:n]
+
 			r := string(buf)
-			fmt.Println(buf)
 			if strings.Contains(r, "\033[2J") || strings.Contains(r, "\033[H") {
 				rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
 				box := terminal.img.SubImage(rect).(*xgraphics.Image)
@@ -161,6 +162,12 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 				fmt.Println("clear screen!")
 			}
+			re := regexp.MustCompile(`\033\(B`)
+			buf = re.ReplaceAll(buf, []byte{})
+			re = regexp.MustCompile(`\033\[.[\(\)0-9;mhHJKABCDEF#l]*`)
+			buf = re.ReplaceAll(buf, []byte{})
+			r = string(buf)
+
 			if bytes.Contains(buf, []byte{0x08}) {
 				_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, bg, size, terminal.font, "\u2588")
 				if err != nil {
@@ -179,8 +186,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 			lines := strings.Split(r, "\n")
 			for n, line := range lines {
-				fmt.Println("parsing line", n)
-				fmt.Println("should be drawing:", line)
+				fmt.Println([]byte(line))
 				_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, line)
 				if err != nil {
 					log.Fatal(err)
