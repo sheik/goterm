@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
+	"github.com/sheik/xgb/glx"
 	"github.com/sheik/xgb/xproto"
 	"github.com/sheik/xgbutil"
 	"github.com/sheik/xgbutil/keybind"
@@ -17,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 )
 
 const (
@@ -32,7 +33,7 @@ var (
 	bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 
 	// The path to the font used to draw text.
-	fontPath = "/home/jeff/.fonts/FiraCode-Regular.ttf"
+	fontPath = "/usr/share/fonts/truetype/firacode/FiraCode-Regular.ttf"
 
 	// The color of the text.
 	fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
@@ -65,9 +66,10 @@ type Cursor struct {
 }
 
 func NewTerminal() (terminal *Terminal, err error) {
-	terminal = &Terminal{width: 800, height: 600}
+	terminal = &Terminal{width: 120, height: 34}
 
-	os.Setenv("TERM", "dumb")
+	//	os.Setenv("TERM", "dumb")
+	os.Setenv("PS1", "bash$ ")
 	c := exec.Command("/bin/bash")
 	terminal.pty, err = pty.Start(c)
 	if err != nil {
@@ -82,6 +84,10 @@ func NewTerminal() (terminal *Terminal, err error) {
 	}
 
 	keybind.Initialize(terminal.X)
+	err = glx.Init(terminal.X.Conn())
+	if err != nil {
+		return nil, err
+	}
 
 	// Load some font. You may need to change the path depending upon your
 	// system configuration.
@@ -96,12 +102,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 		log.Fatal(err)
 	}
 
-	// Create some canvas.
-	terminal.img = xgraphics.New(terminal.X, image.Rect(0, 0, terminal.width, terminal.height))
-	terminal.img.For(func(x, y int) xgraphics.BGRA {
-		return bg
-	})
-
 	terminal.cursor = Cursor{
 		X:      10,
 		Y:      10,
@@ -112,6 +112,12 @@ func NewTerminal() (terminal *Terminal, err error) {
 	// set terminal width/height to full block
 	terminal.cursor.width, terminal.cursor.height = xgraphics.Extents(terminal.font, size, "\u2588")
 
+	// Create some canvas.
+	terminal.img = xgraphics.New(terminal.X, image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height))
+	terminal.img.For(func(x, y int) xgraphics.BGRA {
+		return bg
+	})
+
 	// Now show the image in its own window.
 	terminal.window = terminal.img.XShowExtra("gt", true)
 
@@ -119,63 +125,87 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 	xevent.KeyPressFun(terminal.KeyPressCallback).Connect(terminal.X, terminal.window.Id)
 
-	var line string
-
 	// Goroutine that reads from pty
 	go func() {
 		for {
-			r, _, err := reader.ReadRune()
-
+			fmt.Println("syncing")
+			terminal.img.XDraw()
+			terminal.img.XPaint(terminal.window.Id)
+			terminal.X.Sync()
+			buf := make([]byte, 1024)
+			n, err := reader.Read(buf)
+			if n == 0 {
+				continue
+			}
 			if err != nil {
 				if err == io.EOF {
 					return
 				}
 				os.Exit(0)
 			}
-			if r == 0x08 {
-				fmt.Println("it happened")
-				_, _, err = terminal.img.Text(terminal.cursor.X-terminal.cursor.width, terminal.cursor.Y, bg, size, terminal.font, "\u2588")
+			buf = buf[:n]
+			r := string(buf)
+			fmt.Println(buf)
+			if strings.Contains(r, "\033[2J") || strings.Contains(r, "\033[H") {
+				rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
+				box := terminal.img.SubImage(rect).(*xgraphics.Image)
+				box.For(func(x, y int) xgraphics.BGRA {
+					return bg
+				})
+				box.XDraw()
+				terminal.img.XDraw()
+				terminal.img.XPaint(terminal.window.Id)
+				terminal.X.Sync()
+				terminal.cursor.X = 10
+				terminal.cursor.Y = 10
+
+				fmt.Println("clear screen!")
+			}
+			if bytes.Contains(buf, []byte{0x08}) {
+				_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, bg, size, terminal.font, "\u2588")
 				if err != nil {
 					log.Fatal(err)
 				}
 
 				// Now repaint on the region that we drew text on. Then update the screen.
-				terminal.img.XDraw()
+				err := terminal.img.XDrawChecked()
+				if err != nil {
+					log.Println(err)
+				}
 				terminal.img.XPaint(terminal.window.Id)
+				terminal.X.Sync()
+				continue
 			}
 
-			line = line + string(r)
-		}
-	}()
-	go func() {
-		for {
-			time.Sleep(50 * time.Millisecond)
-			lines := strings.Split(line, "\n")
-			for i, line := range lines {
-				if line != "" {
-					_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, line)
-					if err != nil {
-						log.Fatal(err)
-					}
+			lines := strings.Split(r, "\n")
+			for n, line := range lines {
+				fmt.Println("parsing line", n)
+				fmt.Println("should be drawing:", line)
+				_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, line)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-					w, h := xgraphics.Extents(terminal.font, size, line)
+				w, h := xgraphics.Extents(terminal.font, size, line)
 
-					bounds := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+w, terminal.cursor.Y+h)
-					subimg := terminal.img.SubImage(bounds)
-					if subimg != nil {
-						subimg.(*xgraphics.Image).XDraw()
-						terminal.img.XPaint(terminal.window.Id)
-					}
-
-					if i > 0 {
-						terminal.cursor.X = 10
-						terminal.cursor.Y += terminal.cursor.height
-					} else {
-						terminal.cursor.X += w
-					}
+				bounds := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+w, terminal.cursor.Y+h)
+				subimg := terminal.img.SubImage(bounds)
+				if subimg != nil {
+					//					subimg.(*xgraphics.Image).XDraw()
+					fmt.Println("calling draw")
+					terminal.img.XDraw()
+					terminal.img.XPaint(terminal.window.Id)
+					terminal.X.Sync()
+				}
+				if len(lines) != 0 && strings.Contains(r, "\n") && n != len(lines)-1 {
+					fmt.Println("resetting line")
+					terminal.cursor.X = 10
+					terminal.cursor.Y += terminal.cursor.height
+				} else {
+					terminal.cursor.X += w
 				}
 			}
-			line = ""
+			terminal.X.Sync()
 		}
 	}()
 	return terminal, nil
@@ -187,7 +217,6 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 
 	if keybind.KeyMatch(X, "Backspace", e.State, e.Detail) {
 		term.pty.Write([]byte{0x08})
-
 		term.cursor.X -= term.cursor.width
 		return
 	}
@@ -200,8 +229,8 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 	}
 
 	if keybind.KeyMatch(X, "Return", e.State, e.Detail) {
-		term.cursor.Y += term.cursor.height
-		term.cursor.X = 10
+		//term.cursor.Y += term.cursor.height
+		//term.cursor.X = 10
 		term.pty.Write([]byte{'\n'})
 		return
 	}
