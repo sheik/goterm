@@ -132,6 +132,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 			terminal.img.XDraw()
 			terminal.img.XPaint(terminal.window.Id)
 			terminal.X.Sync()
+
 			buf := make([]byte, 1024)
 			n, err := reader.Read(buf)
 			if n == 0 {
