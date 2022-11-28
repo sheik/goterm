@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"fmt"
+	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
 	"github.com/sheik/xgb/xproto"
 	"github.com/sheik/xgbutil"
@@ -14,8 +16,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
-
-	"github.com/creack/pty"
+	"strings"
+	"time"
 )
 
 const (
@@ -117,6 +119,8 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 	xevent.KeyPressFun(terminal.KeyPressCallback).Connect(terminal.X, terminal.window.Id)
 
+	var line string
+
 	// Goroutine that reads from pty
 	go func() {
 		for {
@@ -128,50 +132,63 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 				os.Exit(0)
 			}
-			if r == '\r' {
-				continue
-			}
-			if r == '\n' {
-				terminal.cursor.X = 10
-				terminal.cursor.Y += terminal.cursor.height
-				continue
-			}
-			_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, string(r))
-			if err != nil {
-				log.Fatal(err)
-			}
+			if r == 0x08 {
+				fmt.Println("it happened")
+				_, _, err = terminal.img.Text(terminal.cursor.X-terminal.cursor.width, terminal.cursor.Y, bg, size, terminal.font, "\u2588")
+				if err != nil {
+					log.Fatal(err)
+				}
 
-			bounds := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+terminal.cursor.width, terminal.cursor.Y+terminal.cursor.height)
-			subimg := terminal.img.SubImage(bounds)
-			if subimg != nil {
-				subimg.(*xgraphics.Image).XDraw()
+				// Now repaint on the region that we drew text on. Then update the screen.
+				terminal.img.XDraw()
 				terminal.img.XPaint(terminal.window.Id)
 			}
 
-			terminal.cursor.X += terminal.cursor.width
+			line = line + string(r)
+		}
+	}()
+	go func() {
+		for {
+			time.Sleep(50 * time.Millisecond)
+			lines := strings.Split(line, "\n")
+			for i, line := range lines {
+				if line != "" {
+					_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, line)
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					w, h := xgraphics.Extents(terminal.font, size, line)
+
+					bounds := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+w, terminal.cursor.Y+h)
+					subimg := terminal.img.SubImage(bounds)
+					if subimg != nil {
+						subimg.(*xgraphics.Image).XDraw()
+						terminal.img.XPaint(terminal.window.Id)
+					}
+
+					if i > 0 {
+						terminal.cursor.X = 10
+						terminal.cursor.Y += terminal.cursor.height
+					} else {
+						terminal.cursor.X += w
+					}
+				}
+			}
+			line = ""
 		}
 	}()
 	return terminal, nil
 }
 
 func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent) {
-	var err error
 	modStr := keybind.ModifierString(e.State)
 	keyStr := keybind.LookupString(X, e.State, e.Detail)
 
 	if keybind.KeyMatch(X, "Backspace", e.State, e.Detail) {
-		_, _, err = term.img.Text(term.cursor.X-term.cursor.width, 10, bg, size, term.font, "\u2588")
-		if err != nil {
-			log.Fatal(err)
-		}
+		term.pty.Write([]byte{0x08})
 
-		// Now repaint on the region that we drew text on. Then update the screen.
-		term.img.XDraw()
-		term.img.XPaint(term.window.Id)
 		term.cursor.X -= term.cursor.width
-		if len(term.input) >= 1 {
-			term.input = term.input[:len(term.input)-1]
-		}
 		return
 	}
 
@@ -183,8 +200,8 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 	}
 
 	if keybind.KeyMatch(X, "Return", e.State, e.Detail) {
-		//		term.cursor.Y += 10
-		//		term.cursor.X = 10
+		term.cursor.Y += term.cursor.height
+		term.cursor.X = 10
 		term.pty.Write([]byte{'\n'})
 		return
 	}
