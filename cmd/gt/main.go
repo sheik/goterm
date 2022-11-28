@@ -1,13 +1,25 @@
 package main
 
 import (
-	"image"
-	"log"
-	"os"
-
+	"bufio"
+	"github.com/sheik/freetype-go/freetype/truetype"
+	"github.com/sheik/xgb/xproto"
 	"github.com/sheik/xgbutil"
+	"github.com/sheik/xgbutil/keybind"
 	"github.com/sheik/xgbutil/xevent"
 	"github.com/sheik/xgbutil/xgraphics"
+	"github.com/sheik/xgbutil/xwindow"
+	"image"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+
+	"github.com/creack/pty"
+)
+
+const (
+	MaxBufferSize = 128
 )
 
 var (
@@ -24,17 +36,50 @@ var (
 	fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
 
 	// The size of the text.
-	size = 20.0
+	size = 14.0
 
 	// The text to draw.
-	msg = "This is some text drawn by xgraphics!"
+	msg = "user@host$ "
 )
 
-func main() {
-	X, err := xgbutil.NewConn()
+type Terminal struct {
+	cursor Cursor
+	width  int
+	height int
+	pty    *os.File
+	input  string
+
+	X      *xgbutil.XUtil
+	font   *truetype.Font
+	img    *xgraphics.Image
+	window *xwindow.Window
+}
+
+type Cursor struct {
+	X      int
+	Y      int
+	width  int
+	height int
+}
+
+func NewTerminal() (terminal *Terminal, err error) {
+	terminal = &Terminal{width: 800, height: 600}
+
+	os.Setenv("TERM", "dumb")
+	c := exec.Command("/bin/bash")
+	terminal.pty, err = pty.Start(c)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
+
+	reader := bufio.NewReader(terminal.pty)
+
+	terminal.X, err = xgbutil.NewConn()
+	if err != nil {
+		return nil, err
+	}
+
+	keybind.Initialize(terminal.X)
 
 	// Load some font. You may need to change the path depending upon your
 	// system configuration.
@@ -44,47 +89,121 @@ func main() {
 	}
 
 	// Now parse the font.
-	font, err := xgraphics.ParseFont(fontReader)
+	terminal.font, err = xgraphics.ParseFont(fontReader)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Create some canvas.
-	ximg := xgraphics.New(X, image.Rect(0, 0, canvasWidth, canvasHeight))
-	ximg.For(func(x, y int) xgraphics.BGRA {
+	terminal.img = xgraphics.New(terminal.X, image.Rect(0, 0, terminal.width, terminal.height))
+	terminal.img.For(func(x, y int) xgraphics.BGRA {
 		return bg
 	})
 
-	// Now write the text.
-	_, _, err = ximg.Text(10, 10, fg, size, font, msg)
-	if err != nil {
-		log.Fatal(err)
+	terminal.cursor = Cursor{
+		X:      10,
+		Y:      10,
+		width:  0,
+		height: 0,
 	}
 
-	// Compute extents of first line of text.
-	_, firsth := xgraphics.Extents(font, size, msg)
+	// set terminal width/height to full block
+	terminal.cursor.width, terminal.cursor.height = xgraphics.Extents(terminal.font, size, "\u2588")
 
 	// Now show the image in its own window.
-	win := ximg.XShowExtra("Drawing text using xgraphics", true)
+	terminal.window = terminal.img.XShowExtra("gt", true)
 
-	// Now draw some more text below the above and demonstrate how to update
-	// only the region we've updated.
-	_, _, err = ximg.Text(10, 10+firsth, fg, size, font, "Some more text.")
+	terminal.window.Listen(xproto.EventMaskKeyPress, xproto.EventMaskKeyRelease)
+
+	xevent.KeyPressFun(terminal.KeyPressCallback).Connect(terminal.X, terminal.window.Id)
+
+	// Goroutine that reads from pty
+	go func() {
+		for {
+			r, _, err := reader.ReadRune()
+
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				os.Exit(0)
+			}
+			if r == '\r' {
+				continue
+			}
+			if r == '\n' {
+				terminal.cursor.X = 10
+				terminal.cursor.Y += terminal.cursor.height
+				continue
+			}
+			_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, string(r))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			bounds := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+terminal.cursor.width, terminal.cursor.Y+terminal.cursor.height)
+			subimg := terminal.img.SubImage(bounds)
+			if subimg != nil {
+				subimg.(*xgraphics.Image).XDraw()
+				terminal.img.XPaint(terminal.window.Id)
+			}
+
+			terminal.cursor.X += terminal.cursor.width
+		}
+	}()
+	return terminal, nil
+}
+
+func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent) {
+	var err error
+	modStr := keybind.ModifierString(e.State)
+	keyStr := keybind.LookupString(X, e.State, e.Detail)
+
+	if keybind.KeyMatch(X, "Backspace", e.State, e.Detail) {
+		_, _, err = term.img.Text(term.cursor.X-term.cursor.width, 10, bg, size, term.font, "\u2588")
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Now repaint on the region that we drew text on. Then update the screen.
+		term.img.XDraw()
+		term.img.XPaint(term.window.Id)
+		term.cursor.X -= term.cursor.width
+		if len(term.input) >= 1 {
+			term.input = term.input[:len(term.input)-1]
+		}
+		return
+	}
+
+	if keybind.KeyMatch(X, "Escape", e.State, e.Detail) {
+		if e.State&xproto.ModMaskControl > 0 {
+			log.Println("Control-Escape detected. Quitting...")
+			xevent.Quit(X)
+		}
+	}
+
+	if keybind.KeyMatch(X, "Return", e.State, e.Detail) {
+		//		term.cursor.Y += 10
+		//		term.cursor.X = 10
+		term.pty.Write([]byte{'\n'})
+		return
+	}
+
+	if len(modStr) > 0 {
+		log.Printf("Key: %s-%s\n", modStr, keyStr)
+	} else {
+		term.input += keyStr
+		term.pty.WriteString(keyStr)
+	}
+}
+
+func main() {
+	term, err := NewTerminal()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// Now compute extents of the second line of text, so we know which region
-	// to update.
-	secw, sech := xgraphics.Extents(font, size, "Some more text.")
-
-	// Now repaint on the region that we drew text on. Then update the screen.
-	bounds := image.Rect(10, 10+firsth, 10+secw, 10+firsth+sech)
-	ximg.SubImage(bounds).(*xgraphics.Image).XDraw()
-	ximg.XPaint(win.Id)
-
 	// All we really need to do is block, which could be achieved using
 	// 'select{}'. Invoking the main event loop however, will emit error
 	// message if anything went seriously wrong above.
-	xevent.Main(X)
+	xevent.Main(term.X)
 }
