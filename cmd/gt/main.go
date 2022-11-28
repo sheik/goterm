@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
@@ -14,12 +13,10 @@ import (
 	"github.com/sheik/xgbutil/xgraphics"
 	"github.com/sheik/xgbutil/xwindow"
 	"image"
-	"io"
 	"log"
 	"os"
 	"os/exec"
-	"regexp"
-	"strings"
+	"time"
 )
 
 const (
@@ -128,99 +125,61 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 	// Goroutine that reads from pty
 	go func() {
+		tokenChan := make(chan *Token)
+		NewLexer(reader, tokenChan)
 		for {
-			terminal.img.XDraw()
-			terminal.img.XPaint(terminal.window.Id)
-			terminal.X.Sync()
+		READTOKEN:
+			var token *Token
+			select {
+			case token = <-tokenChan:
+			case <-time.After(10 * time.Millisecond):
+				terminal.img.XDraw()
+				terminal.img.XPaint(terminal.window.Id)
+				terminal.X.Sync()
+				goto READTOKEN
+			}
 
-			buf := make([]byte, 1024)
-			n, err := reader.Read(buf)
-			if n == 0 {
-				continue
-			}
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				os.Exit(0)
-			}
-			buf = buf[:n]
-
-			r := string(buf)
-			if strings.Contains(r, "\033[H") {
-				terminal.cursor.X = 10
-				terminal.cursor.Y = 10
-			}
-			if strings.Contains(r, "\033[2J") {
-				rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
+			switch token.Type {
+			case BAR:
+				rect := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.width*terminal.cursor.width, terminal.cursor.Y+terminal.cursor.height)
 				box := terminal.img.SubImage(rect).(*xgraphics.Image)
 				box.For(func(x, y int) xgraphics.BGRA {
 					return bg
 				})
 				box.XDraw()
-				terminal.img.XDraw()
-				terminal.img.XPaint(terminal.window.Id)
-				terminal.X.Sync()
+				continue
+			case CRLF:
+				fmt.Println("NEWLINE!")
+				terminal.cursor.X = 10
+				terminal.cursor.Y += terminal.cursor.height
+				continue
+			case COLOR_CODE:
+				continue
+			case RESET_CURSOR:
 				terminal.cursor.X = 10
 				terminal.cursor.Y = 10
-			}
-			re := regexp.MustCompile(`\033\(B`)
-			buf = re.ReplaceAll(buf, []byte{})
-			re = regexp.MustCompile(`\033\[.[\(\)0-9;mhHJKABCDEF#l]*`)
-			buf = re.ReplaceAll(buf, []byte{})
-			r = string(buf)
-
-			if bytes.Contains(buf, []byte{0x08}) {
-				_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, bg, size, terminal.font, "\u2588")
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				// Now repaint on the region that we drew text on. Then update the screen.
-				err := terminal.img.XDrawChecked()
-				if err != nil {
-					log.Println(err)
-				}
-				terminal.img.XPaint(terminal.window.Id)
-				terminal.X.Sync()
-				continue
-			}
-
-			lines := strings.Split(r, "\n")
-			for n, line := range lines {
-				fmt.Println(line)
-				w, h := xgraphics.Extents(terminal.font, size, line)
-
-				rect := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+w, terminal.cursor.Y+h)
+			case TEXT:
+				rect := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+terminal.cursor.width, terminal.cursor.Y+terminal.cursor.height)
 				box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
 				if ok {
 					box.For(func(x, y int) xgraphics.BGRA {
 						return bg
 					})
 					box.XDraw()
-					terminal.img.XPaint(terminal.window.Id)
 				}
-				_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, line)
+				_, _, err = terminal.img.Text(terminal.cursor.X, terminal.cursor.Y, fg, size, terminal.font, token.Literal)
 				if err != nil {
 					log.Fatal(err)
 				}
+				terminal.cursor.X += terminal.cursor.width
+			case CLEAR:
+				rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
+				box := terminal.img.SubImage(rect).(*xgraphics.Image)
+				box.For(func(x, y int) xgraphics.BGRA {
+					return bg
+				})
 
-				bounds := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+w, terminal.cursor.Y+h)
-				subimg := terminal.img.SubImage(bounds)
-				if subimg != nil {
-					subimg.(*xgraphics.Image).XDraw()
-					//terminal.img.XDraw()
-					terminal.img.XPaint(terminal.window.Id)
-					terminal.X.Sync()
-				}
-				if len(lines) != 0 && strings.Contains(r, "\n") && n != len(lines)-1 {
-					terminal.cursor.X = 10
-					terminal.cursor.Y += terminal.cursor.height
-				} else {
-					terminal.cursor.X += w
-				}
 			}
-			terminal.X.Sync()
 		}
 	}()
 	return terminal, nil
