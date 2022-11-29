@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
 	"github.com/sheik/xgb/xproto"
@@ -43,6 +42,7 @@ type Glyph struct {
 	X       int
 	Y       int
 	fg      xgraphics.BGRA
+	bg      xgraphics.BGRA
 	size    float64
 	font    *truetype.Font
 	literal string
@@ -75,6 +75,7 @@ type Cursor struct {
 }
 
 var redraw = false
+var needsDraw = true
 
 func NewTerminal() (terminal *Terminal, err error) {
 	terminal = &Terminal{width: 120, height: 34}
@@ -160,45 +161,36 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 	xevent.KeyPressFun(terminal.KeyPressCallback).Connect(terminal.X, terminal.window.Id)
 
+	go func() {
+		for {
+			time.Sleep(1 * time.Second)
+			//			terminal.DrawCursor()
+			time.Sleep(1 * time.Second)
+			//			terminal.EraseCursor()
+		}
+	}()
+
 	// Goroutine that reads from pty
 	go func() {
 		tokenChan := make(chan *Token)
 		NewLexer(reader, tokenChan)
-		needsDraw := true
 		for {
 			var token *Token
 			select {
 			case token = <-tokenChan:
 				needsDraw = true
 			case <-time.After(10 * time.Millisecond):
-				if redraw {
-					rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
-					box := terminal.img.SubImage(rect).(*xgraphics.Image)
-					box.For(func(x, y int) xgraphics.BGRA {
-						return bg
-					})
-					box.XDraw()
-					for i := 0; i < terminal.height; i++ {
-						for j := 0; j < terminal.width; j++ {
-							g := terminal.glyphs[i][j]
-							if g != nil {
-								_, _, err := terminal.img.Text(j*terminal.cursor.width, i*terminal.cursor.height, g.fg, g.size, g.font, g.literal)
-								if err != nil {
-									log.Fatal(err)
-								}
-							}
-						}
-					}
-					redraw = false
-				}
-				if needsDraw {
-					terminal.img.XDraw()
-					terminal.img.XPaint(terminal.window.Id)
-					terminal.X.Sync()
-					needsDraw = false
-				}
+				terminal.Draw()
 				continue
 			}
+
+			/*
+				if token.Type == COLOR_CODE {
+					fmt.Println(token.Type, []byte(token.Literal), token.Literal[1:])
+				} else {
+					//fmt.Println(token.Type, []byte(token.Literal), token.Literal)
+				}
+			*/
 
 			switch token.Type {
 			case BAR:
@@ -212,37 +204,64 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 				continue
 			case CRLF:
+				//				terminal.EraseCursor()
 				terminal.cursor.X = 0
 				terminal.cursor.RealX = 0
 				terminal.IncreaseY()
 				continue
 			case BACKSPACE:
+				//				terminal.EraseCursor()
 				terminal.cursor.X -= 1
 				terminal.cursor.RealX -= terminal.cursor.width
-				rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.cursor.RealX+terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
-				box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
-				if ok {
-					box.For(func(x, y int) xgraphics.BGRA {
-						return bg
-					})
-					box.XDraw()
-				}
-				continue
+				//terminal.glyphs[terminal.cursor.Y][terminal.cursor.X] = nil
+				/*
+					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.cursor.RealX+terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
+					box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+					if ok {
+						box.For(func(x, y int) xgraphics.BGRA {
+							return bg
+						})
+						box.XDraw()
+					}*/
 			case COLOR_CODE:
+				if token.Literal[1:] == "[K" {
+					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.width*terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
+					box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+					if ok {
+						box.For(func(x, y int) xgraphics.BGRA {
+							return bg
+						})
+						box.XDraw()
+					}
+				}
+
+				// color codes
 				if token.Literal[len(token.Literal)-1] == 'm' {
 					colorString := strings.Split(token.Literal[2:len(token.Literal)-1], ";")
 					for _, color := range colorString {
 						switch color {
-						case "0":
-							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+						case "":
 							terminal.font = terminal.fontRegular
+							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+						case "0":
+							terminal.font = terminal.fontRegular
+							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 						case "00":
 							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 							terminal.font = terminal.fontRegular
 						case "1":
 							terminal.font = terminal.fontBold
 						case "01":
 							terminal.font = terminal.fontBold
+						case "7":
+							fg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+							bg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+						case "27":
+							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 						case "32":
 							fg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
 						case "34":
@@ -280,6 +299,14 @@ func NewTerminal() (terminal *Terminal, err error) {
 					box.XDraw()
 				}
 
+				/*
+					if terminal.glyphs[terminal.cursor.Y][terminal.cursor.X] != nil {
+						for i := terminal.width - 1; i > terminal.cursor.X; i-- {
+							terminal.glyphs[terminal.cursor.Y][i] = terminal.glyphs[terminal.cursor.Y][i-1]
+						}
+						redraw = true
+					}*/
+
 				terminal.glyphs[terminal.cursor.Y][terminal.cursor.X] = &Glyph{
 					X:       terminal.cursor.X,
 					Y:       terminal.cursor.Y,
@@ -296,13 +323,16 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 				terminal.cursor.RealX += terminal.cursor.width
 				terminal.cursor.X += 1
+				//				terminal.DrawCursor()
 			case CLEAR:
 				rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
-				box := terminal.img.SubImage(rect).(*xgraphics.Image)
-				box.For(func(x, y int) xgraphics.BGRA {
-					return bg
-				})
-				box.XDraw()
+				box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+				if ok {
+					box.For(func(x, y int) xgraphics.BGRA {
+						return bg
+					})
+					box.XDraw()
+				}
 				for i := 0; i < terminal.height; i++ {
 					for j := 0; j < terminal.width; j++ {
 						terminal.glyphs[i][j] = nil
@@ -352,11 +382,23 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 				term.pty.Write([]byte{0x04})
 			case "l":
 				term.pty.Write([]byte{0x0C})
+			case "p":
+				term.pty.Write([]byte{0x10})
+			case "r":
+				term.pty.Write([]byte{0x12})
 			}
 		}
-		fmt.Println(modStr, "+", keyStr)
 	} else {
-		// only write it if it's a character (i.e. not Shift_L, etc)
+		switch keyStr {
+		case "Left":
+			term.pty.WriteString("\033[D")
+		case "Up":
+			term.pty.WriteString("\033[A")
+		case "Right":
+			term.pty.WriteString("\033[C")
+		case "Down":
+			term.pty.WriteString("\033[B")
+		}
 		if len(keyStr) == 1 {
 			term.pty.WriteString(keyStr)
 		}
@@ -380,6 +422,74 @@ func (terminal *Terminal) IncreaseY() {
 	} else {
 		terminal.cursor.Y += 1
 		terminal.cursor.RealY += terminal.cursor.height
+	}
+}
+
+func (terminal *Terminal) DrawCursor() {
+	rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.cursor.RealX+terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
+	box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+	if ok {
+		box.For(func(x, y int) xgraphics.BGRA {
+			return fg
+		})
+		box.XDraw()
+		needsDraw = true
+	}
+	g := terminal.glyphs[terminal.cursor.Y][terminal.cursor.X]
+	if g != nil {
+		_, _, err := terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, g.bg, g.size, g.font, g.literal)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func (terminal *Terminal) EraseCursor() {
+	rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.cursor.RealX+terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
+	box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+	g := terminal.glyphs[terminal.cursor.Y][terminal.cursor.X]
+	if g != nil {
+		_, _, err := terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, g.fg, g.size, g.font, g.literal)
+		if err != nil {
+			panic(err)
+		}
+		needsDraw = true
+	}
+	if ok {
+		box.For(func(x, y int) xgraphics.BGRA {
+			return bg
+		})
+		box.XDraw()
+		needsDraw = true
+	}
+
+}
+
+func (terminal *Terminal) Draw() {
+	if redraw {
+		rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
+		box := terminal.img.SubImage(rect).(*xgraphics.Image)
+		box.For(func(x, y int) xgraphics.BGRA {
+			return bg
+		})
+		box.XDraw()
+		for i := 0; i < terminal.height; i++ {
+			for j := 0; j < terminal.width; j++ {
+				g := terminal.glyphs[i][j]
+				if g != nil {
+					_, _, err := terminal.img.Text(j*terminal.cursor.width, i*terminal.cursor.height, g.fg, g.size, g.font, g.literal)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+			}
+		}
+		redraw = false
+	}
+	if needsDraw {
+		terminal.img.XDraw()
+		terminal.img.XPaint(terminal.window.Id)
+		needsDraw = false
 	}
 }
 

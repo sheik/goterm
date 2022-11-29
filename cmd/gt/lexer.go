@@ -111,7 +111,7 @@ func (lexer *Lexer) Token() {
 				literal = ""
 			}
 
-			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'K' || lexer.char == 'f' {
+			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'K' || lexer.char == 'f' || lexer.char == '@' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: COLOR_CODE, Literal: literal}
