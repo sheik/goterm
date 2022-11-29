@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
-	"github.com/sheik/xgb/glx"
 	"github.com/sheik/xgb/xproto"
 	"github.com/sheik/xgbutil"
 	"github.com/sheik/xgbutil/keybind"
@@ -82,10 +81,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 	}
 
 	keybind.Initialize(terminal.X)
-	err = glx.Init(terminal.X.Conn())
-	if err != nil {
-		return nil, err
-	}
 
 	// Load some font. You may need to change the path depending upon your
 	// system configuration.
@@ -101,8 +96,8 @@ func NewTerminal() (terminal *Terminal, err error) {
 	}
 
 	terminal.cursor = Cursor{
-		X:      10,
-		Y:      10,
+		X:      0,
+		Y:      0,
 		width:  0,
 		height: 0,
 	}
@@ -127,16 +122,20 @@ func NewTerminal() (terminal *Terminal, err error) {
 	go func() {
 		tokenChan := make(chan *Token)
 		NewLexer(reader, tokenChan)
+		needsDraw := true
 		for {
-		READTOKEN:
 			var token *Token
 			select {
 			case token = <-tokenChan:
+				needsDraw = true
 			case <-time.After(10 * time.Millisecond):
-				terminal.img.XDraw()
-				terminal.img.XPaint(terminal.window.Id)
-				terminal.X.Sync()
-				goto READTOKEN
+				if needsDraw {
+					terminal.img.XDraw()
+					terminal.img.XPaint(terminal.window.Id)
+					terminal.X.Sync()
+					needsDraw = false
+				}
+				continue
 			}
 
 			switch token.Type {
@@ -149,15 +148,34 @@ func NewTerminal() (terminal *Terminal, err error) {
 				box.XDraw()
 				continue
 			case CRLF:
-				fmt.Println("NEWLINE!")
-				terminal.cursor.X = 10
+				terminal.cursor.X = 0
 				terminal.cursor.Y += terminal.cursor.height
+				continue
+			case BACKSPACE:
+				terminal.cursor.X -= terminal.cursor.width
+				rect := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+terminal.cursor.width, terminal.cursor.Y+terminal.cursor.height)
+				box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+				if ok {
+					box.For(func(x, y int) xgraphics.BGRA {
+						return bg
+					})
+					box.XDraw()
+				}
 				continue
 			case COLOR_CODE:
 				continue
+			case SET_TITLE:
+				title := token.Literal[4 : len(token.Literal)-1]
+				fmt.Println("Title:", title)
+				//icccm.WmStateSet()
+				xproto.ChangePropertyChecked(terminal.X.Conn(), xproto.PropModeReplace, terminal.window.Id, xproto.AtomWmName, xproto.AtomString, 8, uint32(len(title)), []byte(title))
+				terminal.window.Map()
+				terminal.X.Sync()
+
+				continue
 			case RESET_CURSOR:
-				terminal.cursor.X = 10
-				terminal.cursor.Y = 10
+				terminal.cursor.X = 0
+				terminal.cursor.Y = 0
 			case TEXT:
 				rect := image.Rect(terminal.cursor.X, terminal.cursor.Y, terminal.cursor.X+terminal.cursor.width, terminal.cursor.Y+terminal.cursor.height)
 				box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
@@ -191,7 +209,6 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 
 	if keybind.KeyMatch(X, "Backspace", e.State, e.Detail) {
 		term.pty.Write([]byte{0x08})
-		term.cursor.X -= term.cursor.width
 		return
 	}
 
@@ -203,8 +220,6 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 	}
 
 	if keybind.KeyMatch(X, "Return", e.State, e.Detail) {
-		//term.cursor.Y += term.cursor.height
-		//term.cursor.X = 10
 		term.pty.Write([]byte{'\n'})
 		return
 	}
@@ -212,7 +227,6 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 	if len(modStr) > 0 {
 		log.Printf("Key: %s-%s\n", modStr, keyStr)
 	} else {
-		term.input += keyStr
 		term.pty.WriteString(keyStr)
 	}
 }

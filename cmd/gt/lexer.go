@@ -32,6 +32,8 @@ const (
 	CRLF         TokenType = "CRLF"
 	RESET_CURSOR TokenType = "RESET_CURSOR"
 	CLEAR        TokenType = "CLEAR"
+	BACKSPACE    TokenType = "BACKSPACE"
+	SET_TITLE    TokenType = "SET_TITLE"
 )
 
 type State string
@@ -43,6 +45,7 @@ const (
 	EPSON_SEQUENCE  State = "EPSON_SEQUENCE"
 	IN_TEXT         State = "IN_TEXT"
 	IN_NEWLINE      State = "IN_NEWLINE"
+	TITLE_SET       State = "TITLE_SET"
 )
 
 var state = INITIAL
@@ -79,6 +82,10 @@ func (lexer *Lexer) Token() {
 				prevState = state
 				state = ANSI_SEQUENCE
 			}
+			if r == ']' {
+				prevState = state
+				state = TITLE_SET
+			}
 		case ANSI_SEQUENCE:
 			if r == 'H' {
 				prevState = state
@@ -92,7 +99,8 @@ func (lexer *Lexer) Token() {
 				lexer.tokenChan <- &Token{Type: CLEAR, Literal: literal}
 				literal = ""
 			}
-			if r == 'm' || r == 'l' || r == 'h' || r == 'K' {
+
+			if r == 'm' || r == 'l' || r == 'h' || r == 'K' || r == 'f' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: COLOR_CODE, Literal: literal}
@@ -105,6 +113,13 @@ func (lexer *Lexer) Token() {
 				lexer.tokenChan <- &Token{Type: BAR, Literal: literal}
 				literal = ""
 			}
+		case TITLE_SET:
+			if r == '\a' {
+				prevState = state
+				state = IN_TEXT
+				lexer.tokenChan <- &Token{Type: SET_TITLE, Literal: literal}
+				literal = ""
+			}
 		case IN_TEXT:
 			if r == '\r' {
 				prevState = state
@@ -112,6 +127,9 @@ func (lexer *Lexer) Token() {
 			} else if r == '\033' {
 				prevState = state
 				state = ESCAPE_SEQUENCE
+			} else if r == 0x08 {
+				lexer.tokenChan <- &Token{Type: BACKSPACE, Literal: literal}
+				literal = ""
 			} else {
 				lexer.tokenChan <- &Token{Type: TEXT, Literal: literal}
 				literal = ""
