@@ -169,9 +169,9 @@ func NewTerminal() (terminal *Terminal, err error) {
 	go func() {
 		for {
 			time.Sleep(1 * time.Second)
-			//			terminal.DrawCursor()
+			terminal.DrawCursor()
 			time.Sleep(1 * time.Second)
-			//			terminal.EraseCursor()
+			terminal.EraseCursor()
 		}
 	}()
 
@@ -204,14 +204,15 @@ func NewTerminal() (terminal *Terminal, err error) {
 			case BAR:
 				continue
 			case CR:
+				terminal.EraseCursor()
 				terminal.cursor.X = 0
 				terminal.cursor.RealX = 0
 			case LF:
-				//				terminal.EraseCursor()
+				terminal.EraseCursor()
 				terminal.IncreaseY()
 				continue
 			case BACKSPACE:
-				//				terminal.EraseCursor()
+				terminal.EraseCursor()
 				terminal.cursor.X -= 1
 				if terminal.cursor.X < 0 {
 					terminal.cursor.X = 0
@@ -221,7 +222,10 @@ func NewTerminal() (terminal *Terminal, err error) {
 			case COLOR_CODE:
 				if token.Literal[len(token.Literal)-1] == 'C' {
 					terminal.cursor.X += 1
-					terminal.cursor.RealX += terminal.cursor.width
+					if terminal.cursor.X >= terminal.width {
+						terminal.cursor.X = terminal.width - 1
+					}
+					terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
 				}
 				if token.Literal[1:] == "[K" {
 					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.width*terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
@@ -433,7 +437,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 				terminal.cursor.RealX += terminal.cursor.width
 				terminal.cursor.X += 1
-				//				terminal.DrawCursor()
+				terminal.DrawCursor()
 			case CLEAR:
 				rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
 				box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
@@ -550,10 +554,23 @@ func (terminal *Terminal) DrawCursor() {
 	box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
 	if ok {
 		box.For(func(x, y int) xgraphics.BGRA {
-			return fg
+			x = x / terminal.cursor.width
+			y = y / terminal.cursor.height
+			if terminal.glyphs[y][x] != nil {
+				return terminal.glyphs[y][x].fg
+			} else {
+				return fg
+			}
 		})
 		box.XDraw()
 		needsDraw = true
+	}
+	if terminal.cursor.Y > terminal.height-1 {
+		return
+	}
+
+	if terminal.cursor.X > terminal.width-1 {
+		return
 	}
 	g := terminal.glyphs[terminal.cursor.Y][terminal.cursor.X]
 	if g != nil {
@@ -567,22 +584,27 @@ func (terminal *Terminal) DrawCursor() {
 func (terminal *Terminal) EraseCursor() {
 	rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.cursor.RealX+terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
 	box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+
+	if ok {
+		box.For(func(x, y int) xgraphics.BGRA {
+			x = x / terminal.cursor.width
+			y = y / terminal.cursor.height
+			if terminal.glyphs[y][x] != nil {
+				return terminal.glyphs[y][x].bg
+			} else {
+				return bg
+			}
+		})
+		box.XDraw()
+	}
 	g := terminal.glyphs[terminal.cursor.Y][terminal.cursor.X]
 	if g != nil {
 		_, _, err := terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, g.fg, g.size, g.font, g.literal)
 		if err != nil {
 			panic(err)
 		}
-		needsDraw = true
 	}
-	if ok {
-		box.For(func(x, y int) xgraphics.BGRA {
-			return bg
-		})
-		box.XDraw()
-		needsDraw = true
-	}
-
+	needsDraw = true
 }
 
 func (terminal *Terminal) Draw() {
@@ -613,6 +635,9 @@ func (terminal *Terminal) Draw() {
 		redraw = false
 	}
 	if needsDraw {
+		terminal.img.XDraw()
+		terminal.img.XPaint(terminal.window.Id)
+		terminal.DrawCursor()
 		terminal.img.XDraw()
 		terminal.img.XPaint(terminal.window.Id)
 		needsDraw = false
