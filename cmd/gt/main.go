@@ -86,9 +86,9 @@ var needsDraw = true
 func NewTerminal() (terminal *Terminal, err error) {
 	terminal = &Terminal{width: 120, height: 34}
 
-	terminal.glyphs = make([][]*Glyph, terminal.height)
+	terminal.glyphs = make([][]*Glyph, terminal.height+1)
 	for i := range terminal.glyphs {
-		terminal.glyphs[i] = make([]*Glyph, terminal.width)
+		terminal.glyphs[i] = make([]*Glyph, terminal.width+1)
 	}
 
 	os.Setenv("TERM", "xterm-256color")
@@ -189,16 +189,17 @@ func NewTerminal() (terminal *Terminal, err error) {
 				continue
 			}
 
-			if token.Type == TEXT {
-				fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
-			} else {
-				if strings.Contains(token.Literal[1:], "\033") {
-					fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
-				}
-				if token.Type == COLOR_CODE {
-					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
-				}
-			}
+			/*
+				if token.Type == TEXT {
+					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
+				} else {
+					if strings.Contains(token.Literal[1:], "\033") {
+						fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
+					}
+					if token.Type == COLOR_CODE {
+						fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
+					}
+				}*/
 
 			switch token.Type {
 			case BAR:
@@ -228,6 +229,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 					terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
 				}
 				if token.Literal[1:] == "[K" {
+					fmt.Println(len(terminal.glyphs))
 					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.width*terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
 					box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
 					if ok {
@@ -293,6 +295,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 					if bot < 0 {
 						bot = 0
 					}
+					fmt.Println("setting scroll region to", top, bot)
 
 					terminal.top = top
 					terminal.bot = bot
@@ -596,6 +599,13 @@ func (terminal *Terminal) EraseCursor() {
 			}
 		})
 		box.XDraw()
+	}
+	if terminal.cursor.Y > terminal.height-1 {
+		return
+	}
+
+	if terminal.cursor.X > terminal.width-1 {
+		return
 	}
 	g := terminal.glyphs[terminal.cursor.Y][terminal.cursor.X]
 	if g != nil {
