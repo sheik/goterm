@@ -89,7 +89,7 @@ func (lexer *Lexer) Token() {
 				state = ESCAPE_SEQUENCE
 			} else {
 				prevState = state
-				state = IN_TEXT
+				state = INITIAL
 				lexer.tokenChan <- &Token{Type: TEXT, Literal: literal}
 				literal = ""
 			}

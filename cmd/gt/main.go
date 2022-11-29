@@ -65,6 +65,10 @@ type Terminal struct {
 	fontBold    *truetype.Font
 	img         *xgraphics.Image
 	window      *xwindow.Window
+
+	// top and bottom pointers (cursor Y values)
+	top int
+	bot int
 }
 
 type Cursor struct {
@@ -185,37 +189,19 @@ func NewTerminal() (terminal *Terminal, err error) {
 				continue
 			}
 
-			if token.Type == COLOR_CODE {
+			if token.Type == TEXT {
+				fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
+			} else {
 				if strings.Contains(token.Literal[1:], "\033") {
 					fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
-				}
-				fmt.Println(token.Type, []byte(token.Literal), token.Literal[1:])
-			} else {
-				if token.Literal == "\n" || token.Literal == "\r" {
-					fmt.Println(token.Type, []byte(token.Literal))
-				} else {
-					fmt.Println(token.Type, []byte(token.Literal), token.Literal)
 				}
 			}
 
 			switch token.Type {
 			case BAR:
-				/*
-					terminal.cursor.Y += 1
-					terminal.cursor.RealY += terminal.cursor.height
-					terminal.cursor.X = 0
-					terminal.cursor.RealX = 0*/
-				/*
-					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.width*terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
-					box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
-					if ok {
-						box.For(func(x, y int) xgraphics.BGRA {
-							return bg
-						})
-						box.XDraw()
-					}*/
 				continue
 			case CR:
+				fmt.Println("CR DETECTED")
 				terminal.cursor.X = 0
 				terminal.cursor.RealX = 0
 			case LF:
@@ -224,6 +210,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				continue
 			case BACKSPACE:
 				//				terminal.EraseCursor()
+				fmt.Println("BACKSPACE")
 				terminal.cursor.X -= 1
 				terminal.cursor.RealX -= terminal.cursor.width
 				continue
@@ -265,10 +252,31 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 
 				if token.Literal[len(token.Literal)-1] == 'r' {
-					terminal.cursor.X = 0
-					terminal.cursor.Y = 0
-					terminal.cursor.RealX = 0
-					terminal.cursor.RealY = 0
+					// TODO set scroll region
+					top, err := strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[0])
+					if err != nil {
+						fmt.Println("could not convert top")
+						continue
+					}
+					bot, err := strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[1])
+					if err != nil {
+						fmt.Println("could not convert bot")
+						continue
+					}
+					top -= 1
+					if top < 0 {
+						top = 0
+					}
+					bot -= 1
+					if bot < 0 {
+						bot = 0
+					}
+
+					terminal.top = top
+					terminal.bot = bot
+					terminal.cursor.Y = terminal.top
+					terminal.cursor.RealY = terminal.cursor.Y * terminal.cursor.height
+					fmt.Println("scroll region adjusted:", top, bot)
 				}
 
 				if token.Literal[len(token.Literal)-1] == 'h' {
@@ -339,25 +347,43 @@ func NewTerminal() (terminal *Terminal, err error) {
 						continue
 					}
 				}
-				terminal.cursor.RealX = x * terminal.cursor.width
-				terminal.cursor.RealY = y * terminal.cursor.height
+				x -= 1
+				y -= 1
+				if x < 0 {
+					x = 0
+				}
+				if y < 0 {
+					y = 0
+				}
+
 				terminal.cursor.X = x
-				terminal.cursor.Y = y
+				terminal.cursor.Y = terminal.top + y
+				terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
+				terminal.cursor.RealY = terminal.cursor.Y * terminal.cursor.height
+				fmt.Println("resetting cursor to", x, y)
 				redraw = true
 			case CURSOR_ROW:
 				y, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
 				if err != nil {
 					fmt.Println("unable to convert y coordinate for CURSOR_ROW")
 				}
-				terminal.cursor.Y = y
-				terminal.cursor.RealY = y * terminal.cursor.height
+				y -= 1
+				if y < 0 {
+					y = 0
+				}
+				fmt.Println("Setting cursor row to", y)
+				terminal.cursor.Y = terminal.top + y
+				terminal.cursor.RealY = terminal.top + y*terminal.cursor.height
 			case TEXT:
+
+				// TODO is wrapping a terminal mode?
 				if terminal.cursor.X >= terminal.width {
 					terminal.cursor.X = 0
 					terminal.cursor.RealX = 0
 					terminal.IncreaseY()
 					continue
 				}
+
 				rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.cursor.RealX+terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
 				box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
 				if ok {
