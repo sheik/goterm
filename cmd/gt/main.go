@@ -195,13 +195,15 @@ func NewTerminal() (terminal *Terminal, err error) {
 				if strings.Contains(token.Literal[1:], "\033") {
 					fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
 				}
+				if token.Type == COLOR_CODE {
+					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
+				}
 			}
 
 			switch token.Type {
 			case BAR:
 				continue
 			case CR:
-				fmt.Println("CR DETECTED")
 				terminal.cursor.X = 0
 				terminal.cursor.RealX = 0
 			case LF:
@@ -210,9 +212,11 @@ func NewTerminal() (terminal *Terminal, err error) {
 				continue
 			case BACKSPACE:
 				//				terminal.EraseCursor()
-				fmt.Println("BACKSPACE")
 				terminal.cursor.X -= 1
-				terminal.cursor.RealX -= terminal.cursor.width
+				if terminal.cursor.X < 0 {
+					terminal.cursor.X = 0
+				}
+				terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
 				continue
 			case COLOR_CODE:
 				if token.Literal[len(token.Literal)-1] == 'C' {
@@ -227,6 +231,22 @@ func NewTerminal() (terminal *Terminal, err error) {
 							return bg
 						})
 					}
+					for i := terminal.cursor.X; i < terminal.width; i++ {
+						terminal.glyphs[terminal.cursor.Y][i] = nil
+					}
+				}
+
+				if token.Literal[len(token.Literal)-1] == 'G' {
+					x, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
+					if err != nil {
+						fmt.Println("unable to convert y coordinate for CURSOR_ROW")
+					}
+					x -= 1
+					if x < 0 {
+						x = 0
+					}
+					terminal.cursor.X = x
+					terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.height
 				}
 
 				if token.Literal[len(token.Literal)-1] == '@' {
@@ -234,7 +254,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 					if err != nil {
 						fmt.Println("Could not convert to number:", token.Literal[1:])
 					}
-					fmt.Println("Insert n blank chars", n)
 
 					// Move characters after the cursor to the right
 					for i := terminal.width - 1; i > terminal.cursor.X; i-- {
@@ -243,7 +262,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 					// Fill n characters after cursor with blanks
 					for i := 0; i < n; i++ {
-						fmt.Println("filling block")
 						_, _, err = terminal.img.Text(terminal.cursor.RealX+i*terminal.cursor.width, terminal.cursor.RealY, fg, size, terminal.font, "\u2588")
 					}
 
@@ -276,7 +294,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 					terminal.bot = bot
 					terminal.cursor.Y = terminal.top
 					terminal.cursor.RealY = terminal.cursor.Y * terminal.cursor.height
-					fmt.Println("scroll region adjusted:", top, bot)
 				}
 
 				if token.Literal[len(token.Literal)-1] == 'h' {
@@ -360,7 +377,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 				terminal.cursor.Y = terminal.top + y
 				terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
 				terminal.cursor.RealY = terminal.cursor.Y * terminal.cursor.height
-				fmt.Println("resetting cursor to", x, y)
 				redraw = true
 			case CURSOR_ROW:
 				y, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
@@ -371,7 +387,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 				if y < 0 {
 					y = 0
 				}
-				fmt.Println("Setting cursor row to", y)
 				terminal.cursor.Y = terminal.top + y
 				terminal.cursor.RealY = terminal.top + y*terminal.cursor.height
 			case TEXT:
@@ -458,6 +473,11 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 
 	if keybind.KeyMatch(X, "Return", e.State, e.Detail) {
 		term.pty.Write([]byte{'\n'})
+		return
+	}
+
+	if keybind.KeyMatch(X, "Escape", e.State, e.Detail) {
+		term.pty.Write([]byte{27})
 		return
 	}
 
