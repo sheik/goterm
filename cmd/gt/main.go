@@ -101,7 +101,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 		X:    0,
 		Y:    0,
 	})
-
 	reader := bufio.NewReader(terminal.pty)
 
 	terminal.X, err = xgbutil.NewConn()
@@ -191,7 +190,8 @@ func NewTerminal() (terminal *Terminal, err error) {
 					fmt.Println(token.Type, []byte(token.Literal), token.Literal[1:])
 				} else {
 					fmt.Println(token.Type, []byte(token.Literal), token.Literal)
-				}*/
+				}
+			*/
 
 			switch token.Type {
 			case BAR:
@@ -204,10 +204,11 @@ func NewTerminal() (terminal *Terminal, err error) {
 					box.XDraw()
 				}
 				continue
-			case CRLF:
-				//				terminal.EraseCursor()
+			case CR:
 				terminal.cursor.X = 0
 				terminal.cursor.RealX = 0
+			case LF:
+				//				terminal.EraseCursor()
 				terminal.IncreaseY()
 				continue
 			case BACKSPACE:
@@ -252,6 +253,9 @@ func NewTerminal() (terminal *Terminal, err error) {
 					terminal.Draw()
 				}
 
+				if token.Literal[len(token.Literal)-1] == 'h' {
+					fmt.Println("Set terminal mode:", token.Literal[2:len(token.Literal)-1])
+				}
 				// color codes
 				if token.Literal[len(token.Literal)-1] == 'm' {
 					colorString := strings.Split(token.Literal[2:len(token.Literal)-1], ";")
@@ -315,14 +319,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 					})
 					box.XDraw()
 				}
-
-				/*
-					if terminal.glyphs[terminal.cursor.Y][terminal.cursor.X] != nil {
-						for i := terminal.width - 1; i > terminal.cursor.X; i-- {
-							terminal.glyphs[terminal.cursor.Y][i] = terminal.glyphs[terminal.cursor.Y][i-1]
-						}
-						redraw = true
-					}*/
 
 				terminal.glyphs[terminal.cursor.Y][terminal.cursor.X] = &Glyph{
 					X:       terminal.cursor.X,

@@ -32,6 +32,8 @@ const (
 	BAR          TokenType = "BAR"
 	COLOR_CODE   TokenType = "COLOR_CODE"
 	CRLF         TokenType = "CRLF"
+	CR           TokenType = "CR"
+	LF           TokenType = "LF"
 	RESET_CURSOR TokenType = "RESET_CURSOR"
 	CLEAR        TokenType = "CLEAR"
 	BACKSPACE    TokenType = "BACKSPACE"
@@ -66,9 +68,10 @@ func (lexer *Lexer) ReadChar() {
 
 func (lexer *Lexer) Token() {
 	literal := ""
+	i := 0
 	for {
 		lexer.ReadChar()
-	AFTER_READ:
+		i += 1
 		literal += string(lexer.char)
 
 		/*
@@ -136,12 +139,11 @@ func (lexer *Lexer) Token() {
 			}
 		case IN_TEXT:
 			if lexer.char == '\r' {
-				lexer.tokenChan <- &Token{Type: CRLF, Literal: "\r\n"}
-				lexer.ReadChar()
+				lexer.tokenChan <- &Token{Type: CR, Literal: string(lexer.char)}
 				literal = ""
-				if lexer.char != '\n' {
-					goto AFTER_READ
-				}
+			} else if lexer.char == '\n' {
+				lexer.tokenChan <- &Token{Type: LF, Literal: string(lexer.char)}
+				literal = ""
 			} else if lexer.char == '\033' {
 				prevState = state
 				state = ESCAPE_SEQUENCE
