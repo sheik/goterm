@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
 	"github.com/sheik/xgb/xproto"
 	"github.com/sheik/xgbutil"
+	"github.com/sheik/xgbutil/ewmh"
 	"github.com/sheik/xgbutil/keybind"
 	"github.com/sheik/xgbutil/xevent"
 	"github.com/sheik/xgbutil/xgraphics"
@@ -166,12 +166,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				continue
 			case SET_TITLE:
 				title := token.Literal[4 : len(token.Literal)-1]
-				fmt.Println("Title:", title)
-				//icccm.WmStateSet()
-				xproto.ChangePropertyChecked(terminal.X.Conn(), xproto.PropModeReplace, terminal.window.Id, xproto.AtomWmName, xproto.AtomString, 8, uint32(len(title)), []byte(title))
-				terminal.window.Map()
-				terminal.X.Sync()
-
+				ewmh.WmNameSet(terminal.X, terminal.window.Id, title)
 				continue
 			case RESET_CURSOR:
 				terminal.cursor.X = 0
