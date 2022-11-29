@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
 )
@@ -9,6 +10,8 @@ import (
 type Lexer struct {
 	reader    *bufio.Reader
 	tokenChan chan *Token
+	char      byte
+	peek      byte
 }
 
 func NewLexer(reader *bufio.Reader, tokenChan chan *Token) *Lexer {
@@ -51,22 +54,31 @@ const (
 var state = INITIAL
 var prevState = INITIAL
 
+func (lexer *Lexer) ReadChar() {
+	r, err := lexer.reader.ReadByte()
+	if err != nil {
+		if err == io.EOF {
+			close(lexer.tokenChan)
+		}
+		log.Fatal(err)
+	}
+	lexer.char = lexer.peek
+	lexer.peek = r
+}
+
 func (lexer *Lexer) Token() {
 	literal := ""
 	for {
-		r, err := lexer.reader.ReadByte()
-		if err != nil {
-			if err == io.EOF {
-				close(lexer.tokenChan)
-			}
-			log.Fatal(err)
-		}
-
-		literal += string(r)
+		lexer.ReadChar()
+		literal += string(lexer.char)
+		/*
+			if r != '\033' {
+				fmt.Print(string(r))
+			}*/
 
 		switch state {
 		case INITIAL:
-			if r == '\033' {
+			if lexer.char == '\033' {
 				prevState = state
 				state = ESCAPE_SEQUENCE
 			} else {
@@ -74,79 +86,72 @@ func (lexer *Lexer) Token() {
 				state = IN_TEXT
 			}
 		case ESCAPE_SEQUENCE:
-			if r == '(' {
+			if lexer.char == '(' {
 				prevState = state
 				state = EPSON_SEQUENCE
 			}
-			if r == '[' {
+			if lexer.char == '[' {
 				prevState = state
 				state = ANSI_SEQUENCE
 			}
-			if r == ']' {
+			if lexer.char == ']' {
 				prevState = state
 				state = TITLE_SET
 			}
 		case ANSI_SEQUENCE:
-			if r == 'H' {
+			if lexer.char == 'H' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: RESET_CURSOR, Literal: literal}
 				literal = ""
 			}
-			if r == 'J' {
+			if lexer.char == 'J' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: CLEAR, Literal: literal}
 				literal = ""
 			}
 
-			if r == 'm' || r == 'l' || r == 'h' || r == 'K' || r == 'f' {
+			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'K' || lexer.char == 'f' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: COLOR_CODE, Literal: literal}
 				literal = ""
 			}
 		case EPSON_SEQUENCE:
-			if r == 'B' {
+			if lexer.char == 'B' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: BAR, Literal: literal}
 				literal = ""
 			}
 		case TITLE_SET:
-			if r == '\a' {
+			if lexer.char == '\a' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: SET_TITLE, Literal: literal}
 				literal = ""
 			}
 		case IN_TEXT:
-			if r == '\r' {
-				prevState = state
-				state = IN_NEWLINE
-			} else if r == '\033' {
+			if lexer.char == '\n' {
+				fmt.Println("YEP")
+			}
+			if lexer.char == '\r' {
+				if lexer.peek == '\n' {
+					lexer.ReadChar()
+				}
+				lexer.tokenChan <- &Token{Type: CRLF, Literal: "\r\n"}
+				literal = ""
+				break
+			} else if lexer.char == '\033' {
 				prevState = state
 				state = ESCAPE_SEQUENCE
-			} else if r == 0x08 {
+			} else if lexer.char == 0x08 {
 				lexer.tokenChan <- &Token{Type: BACKSPACE, Literal: literal}
 				literal = ""
 			} else {
 				lexer.tokenChan <- &Token{Type: TEXT, Literal: literal}
 				literal = ""
-			}
-		case IN_NEWLINE:
-			if r == '\n' {
-				state = prevState
-				lexer.tokenChan <- &Token{Type: CRLF, Literal: literal}
-				literal = ""
-			} else {
-				if r == '\033' {
-					state = ESCAPE_SEQUENCE
-				} else {
-					state = IN_TEXT
-				}
-				lexer.tokenChan <- &Token{Type: CRLF, Literal: "\r"}
-				literal = literal[1:]
 			}
 		}
 	}
