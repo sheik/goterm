@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
 	"github.com/sheik/xgb/xproto"
@@ -15,6 +16,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -188,9 +190,8 @@ func NewTerminal() (terminal *Terminal, err error) {
 				if token.Type == COLOR_CODE {
 					fmt.Println(token.Type, []byte(token.Literal), token.Literal[1:])
 				} else {
-					//fmt.Println(token.Type, []byte(token.Literal), token.Literal)
-				}
-			*/
+					fmt.Println(token.Type, []byte(token.Literal), token.Literal)
+				}*/
 
 			switch token.Type {
 			case BAR:
@@ -213,16 +214,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				//				terminal.EraseCursor()
 				terminal.cursor.X -= 1
 				terminal.cursor.RealX -= terminal.cursor.width
-				//terminal.glyphs[terminal.cursor.Y][terminal.cursor.X] = nil
-				/*
-					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.cursor.RealX+terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
-					box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
-					if ok {
-						box.For(func(x, y int) xgraphics.BGRA {
-							return bg
-						})
-						box.XDraw()
-					}*/
+				continue
 			case COLOR_CODE:
 				if token.Literal[1:] == "[K" {
 					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.width*terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
@@ -233,6 +225,31 @@ func NewTerminal() (terminal *Terminal, err error) {
 						})
 						box.XDraw()
 					}
+				}
+
+				if token.Literal[len(token.Literal)-1] == '@' {
+					n, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
+					if err != nil {
+						fmt.Println("Could not convert to number:", token.Literal[2:len(token.Literal)-1])
+					}
+					fmt.Println("Insert n blank chars", n)
+
+					// Move characters after the cursor to the right
+					for i := terminal.width - 1; i > terminal.cursor.X; i-- {
+						terminal.glyphs[terminal.cursor.Y][i] = terminal.glyphs[terminal.cursor.Y][i-n]
+						if terminal.glyphs[terminal.cursor.Y][i] != nil {
+							fmt.Println("moving:", terminal.glyphs[terminal.cursor.Y][i].literal)
+						}
+					}
+
+					// Fill n characters after cursor with blanks
+					for i := 0; i < n; i++ {
+						fmt.Println("filling block")
+						_, _, err = terminal.img.Text(terminal.cursor.RealX+i*terminal.cursor.width, terminal.cursor.RealY, fg, size, terminal.font, "\u2588")
+					}
+
+					redraw = true
+					terminal.Draw()
 				}
 
 				// color codes

@@ -70,10 +70,13 @@ func (lexer *Lexer) Token() {
 		lexer.ReadChar()
 	AFTER_READ:
 		literal += string(lexer.char)
+
 		/*
-			if r != '\033' {
-				fmt.Print(string(r))
-			}*/
+			if lexer.char != '\033' && lexer.char != 0x08 && lexer.char != '[' {
+				fmt.Println(string(lexer.char))
+			}
+
+		*/
 
 		switch state {
 		case INITIAL:
