@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"log"
 )
@@ -62,14 +61,14 @@ func (lexer *Lexer) ReadChar() {
 		}
 		log.Fatal(err)
 	}
-	lexer.char = lexer.peek
-	lexer.peek = r
+	lexer.char = r
 }
 
 func (lexer *Lexer) Token() {
 	literal := ""
 	for {
 		lexer.ReadChar()
+	AFTER_READ:
 		literal += string(lexer.char)
 		/*
 			if r != '\033' {
@@ -133,16 +132,13 @@ func (lexer *Lexer) Token() {
 				literal = ""
 			}
 		case IN_TEXT:
-			if lexer.char == '\n' {
-				fmt.Println("YEP")
-			}
 			if lexer.char == '\r' {
-				if lexer.peek == '\n' {
-					lexer.ReadChar()
-				}
 				lexer.tokenChan <- &Token{Type: CRLF, Literal: "\r\n"}
+				lexer.ReadChar()
 				literal = ""
-				break
+				if lexer.char != '\n' {
+					goto AFTER_READ
+				}
 			} else if lexer.char == '\033' {
 				prevState = state
 				state = ESCAPE_SEQUENCE
