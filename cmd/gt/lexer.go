@@ -38,6 +38,7 @@ const (
 	CLEAR        TokenType = "CLEAR"
 	BACKSPACE    TokenType = "BACKSPACE"
 	SET_TITLE    TokenType = "SET_TITLE"
+	CURSOR_ROW   TokenType = "CURSOR_ROW"
 )
 
 type State string
@@ -89,6 +90,8 @@ func (lexer *Lexer) Token() {
 			} else {
 				prevState = state
 				state = IN_TEXT
+				lexer.tokenChan <- &Token{Type: TEXT, Literal: literal}
+				literal = ""
 			}
 		case ESCAPE_SEQUENCE:
 			if lexer.char == '(' {
@@ -102,6 +105,10 @@ func (lexer *Lexer) Token() {
 			if lexer.char == ']' {
 				prevState = state
 				state = TITLE_SET
+			}
+			if lexer.char == '=' || lexer.char == '>' {
+				literal = ""
+				state = INITIAL
 			}
 		case ANSI_SEQUENCE:
 			if lexer.char == 'H' {
@@ -117,7 +124,15 @@ func (lexer *Lexer) Token() {
 				literal = ""
 			}
 
-			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'K' || lexer.char == 'f' || lexer.char == '@' {
+			// move to row
+			if lexer.char == 'd' {
+				prevState = state
+				state = IN_TEXT
+				lexer.tokenChan <- &Token{Type: CURSOR_ROW, Literal: literal}
+				literal = ""
+			}
+
+			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'K' || lexer.char == 'f' || lexer.char == '@' || lexer.char == 'C' || lexer.char == 't' || lexer.char == 'r' {
 				prevState = state
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: COLOR_CODE, Literal: literal}
