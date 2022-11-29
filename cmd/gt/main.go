@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
 	"github.com/sheik/xgb/xproto"
@@ -341,6 +342,19 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 			chr := string(reply.Keysyms[1])
 			term.pty.WriteString(chr)
 		}
+		if strings.Contains(modStr, "control") {
+			switch keyStr {
+			case "a":
+				term.pty.Write([]byte{0x01})
+			case "c":
+				term.pty.Write([]byte{0x03})
+			case "d":
+				term.pty.Write([]byte{0x04})
+			case "l":
+				term.pty.Write([]byte{0x0C})
+			}
+		}
+		fmt.Println(modStr, "+", keyStr)
 	} else {
 		// only write it if it's a character (i.e. not Shift_L, etc)
 		if len(keyStr) == 1 {
