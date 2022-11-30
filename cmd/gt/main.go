@@ -191,24 +191,21 @@ func NewTerminal() (terminal *Terminal, err error) {
 				continue
 			}
 
-			/*
-				if token.Type == TEXT {
-					if token.Literal == " " || token.Literal == "~" || token.Literal[0] > 128 || token.Literal[0] == 0x07 {
+			if token.Type == TEXT {
+				if token.Literal == " " || token.Literal == "~" {
 
-					} else {
-						fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
-					}
 				} else {
-
-					if token.Type == COLOR_CODE {
-						if strings.Contains(token.Literal[1:], "\033") {
-							fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
-						}
-						fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
-					}
+					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
 				}
+			} else {
 
-			*/
+				if token.Type == COLOR_CODE {
+					if strings.Contains(token.Literal[1:], "\033") {
+						fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
+					}
+					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
+				}
+			}
 
 			switch token.Type {
 			case BAR:
@@ -384,7 +381,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 					fmt.Println("setting title", parts[1])
 				case "10":
 					if parts[1] == "?" {
-						fmt.Println("SEND CODES")
+						// SEND CODES
 					}
 				case "11":
 				case "12":

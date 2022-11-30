@@ -79,13 +79,7 @@ func (lexer *Lexer) Token() {
 		lexer.ReadChar()
 		i += 1
 		literal += string(lexer.char)
-
-		/*
-			if lexer.char != '\033' && lexer.char != 0x08 && lexer.char != '[' {
-				fmt.Println(string(lexer.char))
-			}
-
-		*/
+		fmt.Print([]byte{lexer.char})
 
 		switch state {
 		case INITIAL:
@@ -102,7 +96,6 @@ func (lexer *Lexer) Token() {
 			}
 		case DCS_TERMINATE:
 			if lexer.char == '\\' {
-				fmt.Println("IN DCS TERMINATE")
 				state = IN_TEXT
 				lexer.tokenChan <- &Token{Type: DEVICE_CONTROL_STRING, Literal: literal}
 				literal = ""
