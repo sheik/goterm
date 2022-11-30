@@ -9,12 +9,12 @@ import (
 
 type Lexer struct {
 	reader    *bufio.Reader
-	tokenChan chan *Token
+	tokenChan chan Token
 	char      byte
 	peek      byte
 }
 
-func NewLexer(reader *bufio.Reader, tokenChan chan *Token) *Lexer {
+func NewLexer(reader *bufio.Reader, tokenChan chan Token) *Lexer {
 	lexer := &Lexer{reader: reader, tokenChan: tokenChan}
 	go lexer.Token()
 	return lexer
@@ -22,7 +22,7 @@ func NewLexer(reader *bufio.Reader, tokenChan chan *Token) *Lexer {
 
 type Token struct {
 	Type    TokenType
-	Literal string
+	Literal []byte
 }
 
 type TokenType string
@@ -73,22 +73,23 @@ func (lexer *Lexer) ReadChar() {
 }
 
 func (lexer *Lexer) Token() {
-	literal := ""
+	var literal []byte
 	i := 0
 	for {
 		lexer.ReadChar()
 		i += 1
-		literal += string(lexer.char)
-		fmt.Print([]byte{lexer.char})
+
+		literal = append(literal, lexer.char)
+		fmt.Println([]byte{lexer.char})
 
 		switch state {
 		case INITIAL:
 			if lexer.char == '\033' {
 				state = ESCAPE_SEQUENCE
 			} else {
-				state = INITIAL
-				lexer.tokenChan <- &Token{Type: TEXT, Literal: literal}
-				literal = ""
+				state = IN_TEXT
+				lexer.tokenChan <- Token{Type: TEXT, Literal: literal}
+				literal = []byte{}
 			}
 		case DCS:
 			if lexer.char == '\033' {
@@ -97,8 +98,8 @@ func (lexer *Lexer) Token() {
 		case DCS_TERMINATE:
 			if lexer.char == '\\' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: DEVICE_CONTROL_STRING, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: DEVICE_CONTROL_STRING, Literal: literal}
+				literal = []byte{}
 			}
 		case ESCAPE_SEQUENCE:
 			if lexer.char == '(' {
@@ -111,7 +112,7 @@ func (lexer *Lexer) Token() {
 				state = OPERATING_SYSTEM_COMMAND
 			}
 			if lexer.char == '=' || lexer.char == '>' {
-				literal = ""
+				literal = []byte{}
 				state = INITIAL
 			}
 
@@ -122,66 +123,69 @@ func (lexer *Lexer) Token() {
 		case ANSI_SEQUENCE:
 			if lexer.char == 'H' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: RESET_CURSOR, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: RESET_CURSOR, Literal: literal}
+				literal = []byte{}
 			}
 			if lexer.char == 'J' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: CLEAR, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: CLEAR, Literal: literal}
+				literal = []byte{}
 			}
 
 			// move to row
 			if lexer.char == 'd' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: CURSOR_ROW, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: CURSOR_ROW, Literal: literal}
+				literal = []byte{}
 			}
 
 			if lexer.char == 'n' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: CURSOR_POSITION_REQUEST, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: CURSOR_POSITION_REQUEST, Literal: literal}
+				literal = []byte{}
 			}
 
 			if lexer.char == 'c' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: RESET_INITIAL_STATE, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: RESET_INITIAL_STATE, Literal: literal}
+				literal = []byte{}
 			}
 
 			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'K' || lexer.char == 'f' || lexer.char == '@' || lexer.char == 'C' || lexer.char == 't' || lexer.char == 'r' || lexer.char == 'G' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: COLOR_CODE, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: COLOR_CODE, Literal: literal}
+				literal = []byte{}
 			}
 		case EPSON_SEQUENCE:
 			if lexer.char == 'B' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: BAR, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: BAR, Literal: literal}
+				literal = []byte{}
 			}
 		case OPERATING_SYSTEM_COMMAND:
 			if lexer.char == '\a' {
 				state = IN_TEXT
-				lexer.tokenChan <- &Token{Type: OSC, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: OSC, Literal: literal}
+				literal = []byte{}
 			}
 		case IN_TEXT:
 			if lexer.char == '\r' {
-				lexer.tokenChan <- &Token{Type: CR, Literal: string(lexer.char)}
-				literal = ""
+				lexer.tokenChan <- Token{Type: CR, Literal: []byte{lexer.char}}
+				literal = []byte{}
 			} else if lexer.char == '\n' {
-				lexer.tokenChan <- &Token{Type: LF, Literal: string(lexer.char)}
-				literal = ""
+				lexer.tokenChan <- Token{Type: LF, Literal: []byte{lexer.char}}
+				literal = []byte{}
 			} else if lexer.char == '\033' {
 				state = ESCAPE_SEQUENCE
 			} else if lexer.char == 0x08 {
-				lexer.tokenChan <- &Token{Type: BACKSPACE, Literal: literal}
-				literal = ""
+				lexer.tokenChan <- Token{Type: BACKSPACE, Literal: literal}
+				literal = []byte{}
 			} else {
-				lexer.tokenChan <- &Token{Type: TEXT, Literal: literal}
-				literal = ""
+				if len(literal) > 1 {
+					fmt.Println("ITS BIG: ", []byte(literal))
+				}
+				lexer.tokenChan <- Token{Type: TEXT, Literal: literal}
+				literal = []byte{}
 			}
 		}
 	}

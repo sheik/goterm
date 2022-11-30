@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"github.com/creack/pty"
 	"github.com/sheik/freetype-go/freetype/truetype"
@@ -19,10 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
-
-const (
-	MaxBufferSize = 128
 )
 
 var (
@@ -47,7 +44,7 @@ type Glyph struct {
 	bg      xgraphics.BGRA
 	size    float64
 	font    *truetype.Font
-	literal string
+	literal []byte
 }
 
 type Terminal struct {
@@ -179,10 +176,10 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 	// Goroutine that reads from pty
 	go func() {
-		tokenChan := make(chan *Token, 2000)
+		tokenChan := make(chan Token, 2000)
 		NewLexer(reader, tokenChan)
 		for {
-			var token *Token
+			var token Token
 			select {
 			case token = <-tokenChan:
 				needsDraw = true
@@ -192,15 +189,11 @@ func NewTerminal() (terminal *Terminal, err error) {
 			}
 
 			if token.Type == TEXT {
-				if token.Literal == " " || token.Literal == "~" {
-
-				} else {
-					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
-				}
+				fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
 			} else {
 
 				if token.Type == COLOR_CODE {
-					if strings.Contains(token.Literal[1:], "\033") {
+					if bytes.Contains(token.Literal[1:], []byte("\033")) {
 						fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
 					}
 					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
@@ -249,7 +242,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 					}
 					terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
 				}
-				if token.Literal[1:] == "[K" {
+				if bytes.Compare(token.Literal[1:], []byte("[K")) == 0 {
 					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.width*terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
 					box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
 					if ok {
@@ -264,7 +257,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 				if token.Literal[len(token.Literal)-1] == 'G' {
 					terminal.EraseCursor()
-					x, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
+					x, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 					if err != nil {
 						fmt.Println("unable to convert y coordinate for CURSOR_ROW")
 					}
@@ -277,7 +270,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 
 				if token.Literal[len(token.Literal)-1] == '@' {
-					n, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
+					n, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 					if err != nil {
 						fmt.Println("Could not convert to number:", token.Literal[1:])
 					}
@@ -298,12 +291,12 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 				if token.Literal[len(token.Literal)-1] == 'r' {
 					// TODO set scroll region
-					top, err := strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[0])
+					top, err := strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[0])
 					if err != nil {
 						fmt.Println("could not convert top")
 						continue
 					}
-					bot, err := strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[1])
+					bot, err := strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[1])
 					if err != nil {
 						fmt.Println("could not convert bot")
 						continue
@@ -332,7 +325,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 				// color codes
 				if token.Literal[len(token.Literal)-1] == 'm' {
-					colorString := strings.Split(token.Literal[2:len(token.Literal)-1], ";")
+					colorString := strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")
 					for _, color := range colorString {
 						switch color {
 						case "":
@@ -374,7 +367,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 				continue
 			case OSC:
-				parts := strings.Split(token.Literal[2:len(token.Literal)-1], ";")
+				parts := strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")
 				switch parts[0] {
 				case "0":
 					ewmh.WmNameSet(terminal.X, terminal.window.Id, parts[1])
@@ -394,13 +387,13 @@ func NewTerminal() (terminal *Terminal, err error) {
 				terminal.EraseCursor()
 				x := 0
 				y := 0
-				if strings.Contains(token.Literal, ";") {
-					y, err = strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[0])
+				if bytes.Contains(token.Literal, []byte(";")) {
+					y, err = strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[0])
 					if err != nil {
 						fmt.Println("unable to convert y coordinate", []byte(token.Literal), token.Literal[1:])
 						continue
 					}
-					x, err = strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[1])
+					x, err = strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[1])
 					if err != nil {
 						fmt.Println("unable to convert x coordinate")
 						continue
@@ -421,7 +414,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				terminal.cursor.RealY = terminal.cursor.Y * terminal.cursor.height
 				redraw = true
 			case CURSOR_ROW:
-				y, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
+				y, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 				if err != nil {
 					fmt.Println("unable to convert y coordinate for CURSOR_ROW")
 				}
@@ -471,7 +464,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 					literal: token.Literal,
 				}
 
-				_, _, err = terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, fg, size, terminal.font, token.Literal)
+				_, _, err = terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, fg, size, terminal.font, string(token.Literal))
 
 				if err != nil {
 					log.Fatal(err)
@@ -612,7 +605,7 @@ func (terminal *Terminal) DrawCursor() {
 	}
 	g := terminal.glyphs[terminal.cursor.Y][terminal.cursor.X]
 	if g != nil {
-		_, _, err := terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, g.bg, g.size, g.font, g.literal)
+		_, _, err := terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, g.bg, g.size, g.font, string(g.literal))
 		if err != nil {
 			panic(err)
 		}
@@ -643,7 +636,7 @@ func (terminal *Terminal) EraseCursor() {
 	}
 	g := terminal.glyphs[terminal.cursor.Y][terminal.cursor.X]
 	if g != nil {
-		_, _, err := terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, g.fg, g.size, g.font, g.literal)
+		_, _, err := terminal.img.Text(terminal.cursor.RealX, terminal.cursor.RealY, g.fg, g.size, g.font, string(g.literal))
 		if err != nil {
 			panic(err)
 		}
@@ -672,7 +665,7 @@ func (terminal *Terminal) Draw() {
 			for j := 0; j < terminal.width; j++ {
 				g := terminal.glyphs[i][j]
 				if g != nil {
-					_, _, err := terminal.img.Text(j*terminal.cursor.width, i*terminal.cursor.height, g.fg, g.size, g.font, g.literal)
+					_, _, err := terminal.img.Text(j*terminal.cursor.width, i*terminal.cursor.height, g.fg, g.size, g.font, string(g.literal))
 					if err != nil {
 						log.Fatal(err)
 					}
