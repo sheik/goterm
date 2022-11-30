@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"log"
 )
@@ -80,7 +79,6 @@ func (lexer *Lexer) Token() {
 		i += 1
 
 		literal = append(literal, lexer.char)
-		fmt.Println([]byte{lexer.char})
 
 		switch state {
 		case INITIAL:
@@ -181,9 +179,6 @@ func (lexer *Lexer) Token() {
 				lexer.tokenChan <- Token{Type: BACKSPACE, Literal: literal}
 				literal = []byte{}
 			} else {
-				if len(literal) > 1 {
-					fmt.Println("ITS BIG: ", []byte(literal))
-				}
 				lexer.tokenChan <- Token{Type: TEXT, Literal: literal}
 				literal = []byte{}
 			}
