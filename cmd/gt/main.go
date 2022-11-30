@@ -84,7 +84,7 @@ var redraw = false
 var needsDraw = true
 
 func NewTerminal() (terminal *Terminal, err error) {
-	terminal = &Terminal{width: 120, height: 34}
+	terminal = &Terminal{width: 120, height: 34, top: 0, bot: 34}
 
 	terminal.glyphs = make([][]*Glyph, terminal.height+1)
 	for i := range terminal.glyphs {
@@ -166,6 +166,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 	xevent.KeyPressFun(terminal.KeyPressCallback).Connect(terminal.X, terminal.window.Id)
 
+	/*  blinking cursor
 	go func() {
 		for {
 			time.Sleep(1 * time.Second)
@@ -174,6 +175,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 			terminal.EraseCursor()
 		}
 	}()
+	*/
 
 	// Goroutine that reads from pty
 	go func() {
@@ -191,19 +193,35 @@ func NewTerminal() (terminal *Terminal, err error) {
 
 			/*
 				if token.Type == TEXT {
-					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
-				} else {
-					if strings.Contains(token.Literal[1:], "\033") {
-						fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
+					if token.Literal == " " || token.Literal == "~" || token.Literal[0] > 128 || token.Literal[0] == 0x07 {
+
+					} else {
+						fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
 					}
+				} else {
+
 					if token.Type == COLOR_CODE {
+						if strings.Contains(token.Literal[1:], "\033") {
+							fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
+						}
 						fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
 					}
-				}*/
+				}
+
+			*/
 
 			switch token.Type {
 			case BAR:
 				continue
+			case RESET_INITIAL_STATE:
+				// reset title
+				ewmh.WmNameSet(terminal.X, terminal.window.Id, "none")
+				// reset cursor
+				terminal.cursor.X = 0
+				terminal.cursor.RealX = 0
+				terminal.cursor.Y = 0
+				terminal.cursor.RealY = 0
+				// reset cols
 			case CR:
 				terminal.EraseCursor()
 				terminal.cursor.X = 0
@@ -220,6 +238,12 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 				terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
 				continue
+				/*
+					case DELETE_CHARACTERS:
+						// delete from cursor -> n
+						for i := terminal.cursor.X; i < terminal.width-1; i++ {
+							terminal.glyphs[terminal.cursor.Y][i] = terminal.glyphs[terminal.cursor.Y][i+1]
+						}*/
 			case COLOR_CODE:
 				if token.Literal[len(token.Literal)-1] == 'C' {
 					terminal.cursor.X += 1
@@ -229,7 +253,6 @@ func NewTerminal() (terminal *Terminal, err error) {
 					terminal.cursor.RealX = terminal.cursor.X * terminal.cursor.width
 				}
 				if token.Literal[1:] == "[K" {
-					fmt.Println(len(terminal.glyphs))
 					rect := image.Rect(terminal.cursor.RealX, terminal.cursor.RealY, terminal.width*terminal.cursor.width, terminal.cursor.RealY+terminal.cursor.height)
 					box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
 					if ok {
@@ -243,6 +266,7 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 
 				if token.Literal[len(token.Literal)-1] == 'G' {
+					terminal.EraseCursor()
 					x, err := strconv.Atoi(token.Literal[2 : len(token.Literal)-1])
 					if err != nil {
 						fmt.Println("unable to convert y coordinate for CURSOR_ROW")
@@ -352,17 +376,31 @@ func NewTerminal() (terminal *Terminal, err error) {
 				}
 
 				continue
-			case SET_TITLE:
-				title := token.Literal[4 : len(token.Literal)-1]
-				ewmh.WmNameSet(terminal.X, terminal.window.Id, title)
+			case OSC:
+				parts := strings.Split(token.Literal[2:len(token.Literal)-1], ";")
+				switch parts[0] {
+				case "0":
+					ewmh.WmNameSet(terminal.X, terminal.window.Id, parts[1])
+					fmt.Println("setting title", parts[1])
+				case "10":
+					if parts[1] == "?" {
+						fmt.Println("SEND CODES")
+					}
+				case "11":
+				case "12":
+				}
 				continue
+			case CURSOR_POSITION_REQUEST:
+				//				position := fmt.Sprintf("\033%d;%dR", terminal.cursor.Y, terminal.cursor.X)
+				//				terminal.pty.WriteString(position)
 			case RESET_CURSOR:
+				terminal.EraseCursor()
 				x := 0
 				y := 0
 				if strings.Contains(token.Literal, ";") {
 					y, err = strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[0])
 					if err != nil {
-						fmt.Println("unable to convert y coordinate", []byte(token.Literal))
+						fmt.Println("unable to convert y coordinate", []byte(token.Literal), token.Literal[1:])
 						continue
 					}
 					x, err = strconv.Atoi(strings.Split(token.Literal[2:len(token.Literal)-1], ";")[1])
@@ -397,6 +435,9 @@ func NewTerminal() (terminal *Terminal, err error) {
 				terminal.cursor.Y = terminal.top + y
 				terminal.cursor.RealY = terminal.top + y*terminal.cursor.height
 			case TEXT:
+				if token.Literal[0] > 128 || token.Literal[0] == 0x07 {
+					continue
+				}
 
 				// TODO is wrapping a terminal mode?
 				if terminal.cursor.X >= terminal.width {
@@ -533,18 +574,15 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 }
 
 func (terminal *Terminal) Scroll() {
-
-	for i := 0; i < terminal.height-1; i++ {
+	for i := terminal.top; i < terminal.bot; i++ {
 		terminal.glyphs[i] = terminal.glyphs[i+1]
 	}
-	terminal.glyphs[terminal.height-1] = make([]*Glyph, terminal.width)
+	terminal.glyphs[terminal.bot] = make([]*Glyph, terminal.width)
 	redraw = true
-
 }
 
 func (terminal *Terminal) IncreaseY() {
-	if terminal.cursor.Y+1 >= terminal.height {
-		// shift screen up
+	if terminal.top+terminal.cursor.Y+1 >= terminal.bot {
 		terminal.Scroll()
 	} else {
 		terminal.cursor.Y += 1
@@ -603,7 +641,6 @@ func (terminal *Terminal) EraseCursor() {
 	if terminal.cursor.Y > terminal.height-1 {
 		return
 	}
-
 	if terminal.cursor.X > terminal.width-1 {
 		return
 	}
@@ -619,19 +656,22 @@ func (terminal *Terminal) EraseCursor() {
 
 func (terminal *Terminal) Draw() {
 	if redraw {
-		rect := image.Rect(0, 0, terminal.width*terminal.cursor.width, terminal.height*terminal.cursor.height)
-		box := terminal.img.SubImage(rect).(*xgraphics.Image)
-		box.For(func(x, y int) xgraphics.BGRA {
-			x = x / terminal.cursor.width
-			y = y / terminal.cursor.height
-			if terminal.glyphs[y][x] != nil {
-				return terminal.glyphs[y][x].bg
-			} else {
-				return bg
-			}
-		})
-		box.XDraw()
-		for i := 0; i < terminal.height; i++ {
+		rect := image.Rect(0, terminal.top, terminal.width*terminal.cursor.width, terminal.bot*terminal.cursor.height)
+		box, ok := terminal.img.SubImage(rect).(*xgraphics.Image)
+		if ok {
+			box.For(func(x, y int) xgraphics.BGRA {
+				x = x / terminal.cursor.width
+				y = y / terminal.cursor.height
+				if terminal.glyphs[y][x] != nil {
+					return terminal.glyphs[y][x].bg
+				} else {
+					return bg
+				}
+			})
+			box.XDraw()
+		}
+
+		for i := terminal.top; i < terminal.bot; i++ {
 			for j := 0; j < terminal.width; j++ {
 				g := terminal.glyphs[i][j]
 				if g != nil {
@@ -645,8 +685,6 @@ func (terminal *Terminal) Draw() {
 		redraw = false
 	}
 	if needsDraw {
-		terminal.img.XDraw()
-		terminal.img.XPaint(terminal.window.Id)
 		terminal.DrawCursor()
 		terminal.img.XDraw()
 		terminal.img.XPaint(terminal.window.Id)
