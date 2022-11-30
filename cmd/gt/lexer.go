@@ -42,6 +42,8 @@ const (
 	CURSOR_POSITION_REQUEST TokenType = "CURSOR_POSITION_REQUEST"
 	DEVICE_CONTROL_STRING   TokenType = "DEVICE_CONTROL_STRING"
 	RESET_INITIAL_STATE     TokenType = "RESET_INITIAL_STATE"
+	INSERT_LINE             TokenType = "INSERT_LINE"
+	DELETE_LINES            TokenType = "DELETE_LINES"
 )
 
 type State string
@@ -118,7 +120,19 @@ func (lexer *Lexer) Token() {
 				state = DCS // device control string
 			}
 
+			if lexer.char == 'M' {
+				state = IN_TEXT
+				lexer.tokenChan <- Token{Type: DELETE_LINES, Literal: literal}
+				literal = []byte{}
+			}
+
 		case ANSI_SEQUENCE:
+			if lexer.char == 'L' {
+				state = IN_TEXT
+				lexer.tokenChan <- Token{Type: INSERT_LINE, Literal: literal}
+				literal = []byte{}
+			}
+
 			if lexer.char == 'H' {
 				state = IN_TEXT
 				lexer.tokenChan <- Token{Type: RESET_CURSOR, Literal: literal}

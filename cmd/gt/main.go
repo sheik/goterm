@@ -232,9 +232,20 @@ func NewTerminal() (term *Terminal, err error) {
 						for i := term.cursor.X; i < term.width-1; i++ {
 							term.glyphs[term.cursor.Y][i] = term.glyphs[term.cursor.Y][i+1]
 						}*/
+			case INSERT_LINE:
+				term.ScrollUp()
 			case COLOR_CODE:
+
+				// cursor <n> forward
 				if token.Literal[len(token.Literal)-1] == 'C' {
-					term.cursor.X += 1
+					n := 1
+					if len(token.Literal) > 3 {
+						n, err = strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
+						if err != nil {
+							fmt.Println("could not determine n for cursor move")
+						}
+					}
+					term.cursor.X += n
 					if term.cursor.X >= term.width {
 						term.cursor.X = term.width - 1
 					}
@@ -293,13 +304,13 @@ func NewTerminal() (term *Terminal, err error) {
 					// TODO set scroll region
 					top, err := strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[0])
 					if err != nil {
-						fmt.Println("could not convert top")
-						continue
+						fmt.Println("could not convert top:", string(token.Literal[1:]))
+						top = 0
 					}
 					bot, err := strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[1])
 					if err != nil {
 						fmt.Println("could not convert bot")
-						continue
+						bot = 0
 					}
 					top -= 1
 					if top < 0 {
@@ -309,7 +320,6 @@ func NewTerminal() (term *Terminal, err error) {
 					if bot < 0 {
 						bot = 0
 					}
-					fmt.Println("setting scroll region to", top, bot)
 
 					term.top = top
 					term.bot = bot
@@ -410,6 +420,8 @@ func NewTerminal() (term *Terminal, err error) {
 				term.cursor.X = x
 				term.cursor.Y = term.top + y
 				redraw = true
+			case DELETE_LINES:
+				term.ScrollUp()
 			case CURSOR_ROW:
 				y, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 				if err != nil {
@@ -417,9 +429,11 @@ func NewTerminal() (term *Terminal, err error) {
 				}
 				y -= 1
 				if y < 0 {
-					y = 0
+					term.cursor.Y = 0
+					term.ScrollUp()
+				} else {
+					term.cursor.Y = term.top + y
 				}
-				term.cursor.Y = term.top + y
 			case TEXT:
 				if token.Literal[0] == '\t' {
 					token.Literal = []byte("    ")
@@ -561,6 +575,14 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 	}
 }
 
+func (term *Terminal) ScrollUp() {
+	for i := term.bot; i > term.top; i-- {
+		term.glyphs[i] = term.glyphs[i-1]
+	}
+	term.glyphs[term.top] = make([]*Glyph, term.width)
+	redraw = true
+}
+
 func (term *Terminal) Scroll() {
 	for i := term.top; i < term.bot; i++ {
 		term.glyphs[i] = term.glyphs[i+1]
@@ -592,8 +614,6 @@ func (term *Terminal) DrawCursor() {
 		})
 		box.XDraw()
 		needsDraw = true
-	} else {
-		fmt.Println("NO RECT!")
 	}
 	if term.cursor.Y > term.height-1 {
 		return
@@ -675,8 +695,6 @@ func (term *Terminal) Draw() {
 		redraw = false
 	}
 	if needsDraw {
-		fmt.Println("Cursor:", term.cursor.Y, term.cursor.X)
-		fmt.Println("TOP/BOT:", term.top, term.bot)
 		term.DrawCursor()
 		term.img.XDraw()
 		term.img.XPaint(term.window.Id)
