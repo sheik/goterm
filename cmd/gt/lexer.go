@@ -44,6 +44,7 @@ const (
 	RESET_INITIAL_STATE     TokenType = "RESET_INITIAL_STATE"
 	INSERT_LINE             TokenType = "INSERT_LINE"
 	DELETE_LINES            TokenType = "DELETE_LINES"
+	DELETE_CHARS            TokenType = "DELETE_CHARS"
 )
 
 type State string
@@ -160,6 +161,12 @@ func (lexer *Lexer) Token() {
 			if lexer.char == 'c' {
 				state = IN_TEXT
 				lexer.tokenChan <- Token{Type: RESET_INITIAL_STATE, Literal: literal}
+				literal = []byte{}
+			}
+
+			if lexer.char == 'X' {
+				state = IN_TEXT
+				lexer.tokenChan <- Token{Type: DELETE_CHARS, Literal: literal}
 				literal = []byte{}
 			}
 

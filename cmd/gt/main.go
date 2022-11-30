@@ -399,7 +399,7 @@ func NewTerminal() (term *Terminal, err error) {
 				if bytes.Contains(token.Literal, []byte(";")) {
 					y, err = strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[0])
 					if err != nil {
-						fmt.Println("unable to convert y coordinate", []byte(token.Literal), token.Literal[1:])
+						fmt.Println("unable to convert y coordinate", []byte(token.Literal), string(token.Literal[1:]))
 						continue
 					}
 					x, err = strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[1])
@@ -422,6 +422,16 @@ func NewTerminal() (term *Terminal, err error) {
 				redraw = true
 			case DELETE_LINES:
 				term.ScrollUp()
+			case DELETE_CHARS:
+				n, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
+				if err != nil {
+					fmt.Println("unable to determine n for delete chars")
+					continue
+				}
+				for i := term.cursor.X; i < n; i++ {
+					term.glyphs[term.cursor.Y][i] = nil
+				}
+				redraw = true
 			case CURSOR_ROW:
 				y, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 				if err != nil {
