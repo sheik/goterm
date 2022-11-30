@@ -334,9 +334,10 @@ func NewTerminal() (term *Terminal, err error) {
 				}
 				// color codes
 				if token.Literal[len(token.Literal)-1] == 'm' {
-					colorString := strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")
-					for _, color := range colorString {
-						switch color {
+					args := strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")
+
+					if len(args) > 0 {
+						switch args[0] {
 						case "":
 							term.font = term.fontRegular
 							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
@@ -365,11 +366,32 @@ func NewTerminal() (term *Terminal, err error) {
 							fg = xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
 						case "39":
 							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
-							term.font = term.fontRegular
-						case "39;49":
+						case "42":
+							bg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+						}
+					}
+					if len(args) > 1 {
+						switch args[1] {
+						case "32":
+							fg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+						case "34":
+							fg = xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
+						case "39":
 							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
-							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
-							term.font = term.fontRegular
+						case "42":
+							bg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+						}
+
+					}
+					if len(args) > 2 {
+						fmt.Println("SET BACKGROUND:", args[2])
+						switch args[2] {
+						case "32":
+							fg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+						case "34":
+							fg = xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
+						case "39":
+							fg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 						}
 					}
 				}
