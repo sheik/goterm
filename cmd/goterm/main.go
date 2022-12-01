@@ -82,7 +82,7 @@ var redraw = false
 var needsDraw = true
 
 func NewTerminal() (term *Terminal, err error) {
-	term = &Terminal{width: 120, height: 34, top: 0, bot: 34}
+	term = &Terminal{width: 120, height: 34, top: 0, bot: 33}
 
 	term.glyphs = make([][]*Glyph, term.height+1)
 	for i := range term.glyphs {
@@ -156,7 +156,7 @@ func NewTerminal() (term *Terminal, err error) {
 	})
 
 	// Now show the image in its own window.
-	term.window = term.img.XShowExtra("gt", true)
+	term.window = term.img.XShowExtra("goterm", true)
 
 	term.window.Listen(xproto.EventMaskKeyPress, xproto.EventMaskKeyRelease)
 
@@ -210,7 +210,7 @@ func NewTerminal() (term *Terminal, err error) {
 				term.cursor.X = 0
 				term.cursor.Y = 0
 				term.top = 0
-				term.bot = term.height
+				term.bot = term.height - 1
 				// reset cols
 			case CR:
 				term.EraseCursor()
@@ -312,17 +312,9 @@ func NewTerminal() (term *Terminal, err error) {
 						fmt.Println("could not convert bot")
 						bot = 0
 					}
-					top -= 1
-					if top < 0 {
-						top = 0
-					}
-					bot -= 1
-					if bot < 0 {
-						bot = 0
-					}
-
-					term.top = top
-					term.bot = bot
+					fmt.Println("setting top to:", top)
+					term.top = top - 1
+					term.bot = bot - 1
 					term.cursor.Y = term.top
 				}
 
@@ -586,6 +578,7 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 }
 
 func (term *Terminal) ScrollUp() {
+	fmt.Println("Scrolling up!")
 	for i := term.bot; i > term.top; i-- {
 		term.glyphs[i] = term.glyphs[i-1]
 	}
@@ -594,6 +587,7 @@ func (term *Terminal) ScrollUp() {
 }
 
 func (term *Terminal) Scroll() {
+	fmt.Println("Scrolling down!")
 	for i := term.top; i < term.bot; i++ {
 		term.glyphs[i] = term.glyphs[i+1]
 	}
@@ -602,7 +596,7 @@ func (term *Terminal) Scroll() {
 }
 
 func (term *Terminal) IncreaseY() {
-	if term.top+term.cursor.Y+1 >= term.bot {
+	if term.top+term.cursor.Y+1 > term.bot {
 		term.Scroll()
 	} else {
 		term.cursor.Y += 1
@@ -676,7 +670,8 @@ func (term *Terminal) EraseCursor() {
 
 func (term *Terminal) Draw() {
 	if redraw {
-		rect := image.Rect(0, term.top, term.width*term.cursor.width, term.bot*term.cursor.height)
+		fmt.Println("redraw")
+		rect := image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height)
 		box, ok := term.img.SubImage(rect).(*xgraphics.Image)
 		if ok {
 			box.For(func(x, y int) xgraphics.BGRA {
@@ -689,13 +684,19 @@ func (term *Terminal) Draw() {
 				}
 			})
 			box.XDraw()
+			fmt.Println("redraw background")
 		}
 
-		for i := term.top; i < term.bot; i++ {
+		for i := term.top; i <= term.bot; i++ {
 			for j := 0; j < term.width; j++ {
 				g := term.glyphs[i][j]
 				if g != nil {
 					_, _, err := term.img.Text(j*term.cursor.width, i*term.cursor.height, g.fg, g.size, g.font, string(g.literal))
+					if err != nil {
+						log.Fatal(err)
+					}
+				} else {
+					_, _, err := term.img.Text(j*term.cursor.width, i*term.cursor.height, bg, size, term.font, "\u2588")
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -705,6 +706,7 @@ func (term *Terminal) Draw() {
 		redraw = false
 	}
 	if needsDraw {
+		fmt.Println("draw")
 		term.DrawCursor()
 		term.img.XDraw()
 		term.img.XPaint(term.window.Id)
