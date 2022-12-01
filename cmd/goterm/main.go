@@ -394,7 +394,6 @@ func NewTerminal() (term *Terminal, err error) {
 				switch parts[0] {
 				case "0":
 					ewmh.WmNameSet(term.X, term.window.Id, parts[1])
-					fmt.Println("setting title", parts[1])
 				case "10":
 					if parts[1] == "?" {
 						// SEND CODES
@@ -600,7 +599,6 @@ func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent)
 }
 
 func (term *Terminal) ScrollUp() {
-	fmt.Println("Scrolling up!")
 	for i := term.bot; i > term.top; i-- {
 		term.glyphs[i] = term.glyphs[i-1]
 	}
@@ -609,7 +607,6 @@ func (term *Terminal) ScrollUp() {
 }
 
 func (term *Terminal) Scroll() {
-	fmt.Println("Scrolling down!")
 	for i := term.top; i < term.bot; i++ {
 		term.glyphs[i] = term.glyphs[i+1]
 	}
@@ -692,7 +689,6 @@ func (term *Terminal) EraseCursor() {
 
 func (term *Terminal) Draw() {
 	if redraw {
-		fmt.Println("redraw")
 		rect := image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height)
 		box, ok := term.img.SubImage(rect).(*xgraphics.Image)
 		if ok {
@@ -706,7 +702,6 @@ func (term *Terminal) Draw() {
 				}
 			})
 			box.XDraw()
-			fmt.Println("redraw background")
 		}
 
 		for i := term.top; i <= term.bot; i++ {
@@ -728,7 +723,6 @@ func (term *Terminal) Draw() {
 		redraw = false
 	}
 	if needsDraw {
-		fmt.Println("draw")
 		term.DrawCursor()
 		term.img.XDraw()
 		term.img.XPaint(term.window.Id)
