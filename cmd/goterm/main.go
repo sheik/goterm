@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +38,8 @@ var (
 	// The size of the text.
 	size = 13.0
 
-	debug = flag.Bool("debug", false, "turn debug logging on")
+	debug      = flag.Bool("debug", false, "turn debug logging on")
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 )
 
 type Glyph struct {
@@ -180,20 +182,18 @@ func NewTerminal() (term *Terminal, err error) {
 	go func() {
 		tokenChan := make(chan Token, 2000)
 		NewLexer(reader, tokenChan)
-		i := 0
+		i := 5000
 		for {
 			var token Token
 			select {
-			case <-time.After(100 * time.Microsecond):
-				term.Draw()
-				i = 0
+			case <-time.After(time.Duration(i) * time.Microsecond):
+				if needsDraw || redraw {
+					term.Draw()
+				}
+				//				i += 1000
 				continue
 			case token = <-tokenChan:
-				i++
-				if i > 200 {
-					term.Draw()
-					i = 0
-				}
+				//				i -= 10
 				needsDraw = true
 			}
 			if *debug {
@@ -318,7 +318,6 @@ func NewTerminal() (term *Terminal, err error) {
 						fmt.Println("could not convert bot")
 						bot = 0
 					}
-					fmt.Println("setting top to:", top)
 					term.top = top - 1
 					term.bot = bot - 1
 					term.cursor.Y = term.top
@@ -618,6 +617,9 @@ func (term *Terminal) ScrollUp() {
 		term.glyphs[i] = term.glyphs[i-1]
 	}
 	term.glyphs[term.top] = make([]*Glyph, term.width)
+	for i := 0; i < term.height; i++ {
+		term.dirtyRows[i] = true
+	}
 	redraw = true
 }
 
@@ -626,6 +628,9 @@ func (term *Terminal) Scroll() {
 		term.glyphs[i] = term.glyphs[i+1]
 	}
 	term.glyphs[term.bot] = make([]*Glyph, term.width)
+	for i := 0; i < term.height; i++ {
+		term.dirtyRows[i] = true
+	}
 	redraw = true
 }
 
@@ -665,7 +670,7 @@ func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
 		}
 	}
 	redraw = true
-	for i := y1; i <= y2; i++ {
+	for i := y1; i < y2; i++ {
 		term.dirtyRows[i] = true
 	}
 }
@@ -777,7 +782,7 @@ func (term *Terminal) Draw() {
 		redraw = false
 	}
 	if needsDraw {
-		//		term.DrawCursor()
+		term.DrawCursor()
 		term.img.XDraw()
 		term.img.XPaint(term.window.Id)
 		needsDraw = false
@@ -786,6 +791,15 @@ func (term *Terminal) Draw() {
 
 func main() {
 	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	term, err := NewTerminal()
 	if err != nil {
