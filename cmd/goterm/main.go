@@ -57,7 +57,8 @@ type Terminal struct {
 	pty    *os.File
 	input  string
 
-	glyphs [][]*Glyph
+	glyphs    [][]*Glyph
+	dirtyRows map[int]bool
 
 	X           *xgbutil.XUtil
 	font        *truetype.Font
@@ -83,6 +84,8 @@ var needsDraw = true
 
 func NewTerminal() (term *Terminal, err error) {
 	term = &Terminal{width: 120, height: 34, top: 0, bot: 33}
+
+	term.dirtyRows = make(map[int]bool)
 
 	term.glyphs = make([][]*Glyph, term.height+1)
 	for i := range term.glyphs {
@@ -177,14 +180,21 @@ func NewTerminal() (term *Terminal, err error) {
 	go func() {
 		tokenChan := make(chan Token, 2000)
 		NewLexer(reader, tokenChan)
+		i := 0
 		for {
 			var token Token
 			select {
-			case token = <-tokenChan:
-				needsDraw = true
-			case <-time.After(10 * time.Millisecond):
+			case <-time.After(100 * time.Microsecond):
 				term.Draw()
+				i = 0
 				continue
+			case token = <-tokenChan:
+				i++
+				if i > 200 {
+					term.Draw()
+					i = 0
+				}
+				needsDraw = true
 			}
 			if *debug {
 				if token.Type == TEXT {
@@ -243,7 +253,6 @@ func NewTerminal() (term *Terminal, err error) {
 						fmt.Println("unable to determine n for delete chars")
 						continue
 					}
-					fmt.Println("FOUND N:", n)
 				}
 
 				switch n {
@@ -254,6 +263,9 @@ func NewTerminal() (term *Terminal, err error) {
 				case 2:
 					term.ClearRegion(0, term.cursor.Y, term.width-1, term.cursor.Y)
 				}
+
+				redraw = true
+				term.dirtyRows[term.cursor.Y] = true
 			case COLOR_CODE:
 
 				// cursor <n> forward
@@ -271,19 +283,6 @@ func NewTerminal() (term *Terminal, err error) {
 					}
 				}
 
-				if token.Literal[len(token.Literal)-1] == 'G' {
-					term.EraseCursor()
-					x, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
-					if err != nil {
-						fmt.Println("unable to convert y coordinate for CURSOR_ROW")
-					}
-					x -= 1
-					if x < 0 {
-						x = 0
-					}
-					term.cursor.X = x
-				}
-
 				if token.Literal[len(token.Literal)-1] == '@' {
 					n, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 					if err != nil {
@@ -291,7 +290,6 @@ func NewTerminal() (term *Terminal, err error) {
 					}
 
 					// Move characters after the cursor to the right
-					fmt.Println(term.cursor.Y)
 					for i := term.width - 1; i > term.cursor.X; i-- {
 						if (i - n) < 0 {
 							break
@@ -305,7 +303,7 @@ func NewTerminal() (term *Terminal, err error) {
 					}
 
 					redraw = true
-					term.Draw()
+					term.dirtyRows[term.cursor.Y] = true
 				}
 
 				if token.Literal[len(token.Literal)-1] == 'r' {
@@ -415,8 +413,8 @@ func NewTerminal() (term *Terminal, err error) {
 				//				term.pty.WriteString(position)
 			case RESET_CURSOR:
 				term.EraseCursor()
-				x := 0
-				y := 0
+				x := 1
+				y := 1
 				if bytes.Contains(token.Literal, []byte(";")) {
 					y, err = strconv.Atoi(strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")[0])
 					if err != nil {
@@ -429,8 +427,6 @@ func NewTerminal() (term *Terminal, err error) {
 						continue
 					}
 				}
-				x -= 1
-				y -= 1
 				if x < 0 {
 					x = 0
 				}
@@ -438,23 +434,32 @@ func NewTerminal() (term *Terminal, err error) {
 					y = 0
 				}
 
-				term.cursor.X = x
-				term.cursor.Y = term.top + y
-				redraw = true
+				term.cursor.X = x - 1
+				term.cursor.Y = term.top + y - 1
 			case DELETE_LINES:
 				term.ScrollUp()
 			case DELETE_CHARS:
 				// TODO this function needs to be rewritten!
+				n := 1
 				n, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 				if err != nil {
 					fmt.Println("unable to determine n for delete chars")
 					continue
 				}
-				for i := term.cursor.X; i < term.cursor.X+n; i++ {
+				for i := term.cursor.X; i < term.width-1; i++ {
+					if i+n > term.width-1 {
+						term.glyphs[term.cursor.Y][i] = nil
+						continue
+					}
+					term.glyphs[term.cursor.Y][i] = term.glyphs[term.cursor.Y][i+n]
 				}
-
+				for i := term.width - n; i < term.width; i++ {
+					term.glyphs[term.cursor.Y][i] = nil
+				}
 				redraw = true
+				term.dirtyRows[term.cursor.Y] = true
 			case CURSOR_ROW:
+				y := 1
 				y, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 				if err != nil {
 					fmt.Println("unable to convert y coordinate for CURSOR_ROW")
@@ -464,7 +469,7 @@ func NewTerminal() (term *Terminal, err error) {
 					term.cursor.Y = 0
 					term.ScrollUp()
 				} else {
-					term.cursor.Y = term.top + y
+					term.cursor.Y = y
 				}
 			case TEXT:
 				if token.Literal[0] == '\t' {
@@ -515,7 +520,8 @@ func NewTerminal() (term *Terminal, err error) {
 					log.Fatal(err)
 				}
 				term.cursor.X += len(token.Literal)
-				term.DrawCursor()
+				redraw = true
+				term.dirtyRows[term.cursor.Y] = true
 			case CLEAR:
 				rect := image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height)
 				box, ok := term.img.SubImage(rect).(*xgraphics.Image)
@@ -632,9 +638,6 @@ func (term *Terminal) IncreaseY() {
 }
 
 func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
-	if y1 > 17 {
-		fmt.Println(x1, x2, y1, y2)
-	}
 	y1 = y1 + term.top
 	y2 = y2 + term.top
 
@@ -644,6 +647,9 @@ func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
 	if y1 > y2 {
 		y1, y2 = y2, y1
 	}
+	if x2 > term.width-1 {
+		x2 = term.width - 1
+	}
 
 	for i := y1; i <= y2; i++ {
 		for j := x1; j <= x2; j++ {
@@ -651,7 +657,7 @@ func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
 				X:       j,
 				Y:       i,
 				fg:      fg,
-				bg:      fg,
+				bg:      bg,
 				size:    size,
 				font:    term.font,
 				literal: []byte(" "),
@@ -659,6 +665,9 @@ func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
 		}
 	}
 	redraw = true
+	for i := y1; i <= y2; i++ {
+		term.dirtyRows[i] = true
+	}
 }
 
 func (term *Terminal) DrawCursor() {
@@ -728,22 +737,27 @@ func (term *Terminal) EraseCursor() {
 
 func (term *Terminal) Draw() {
 	if redraw {
-		rect := image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height)
-		box, ok := term.img.SubImage(rect).(*xgraphics.Image)
-		if ok {
-			box.For(func(x, y int) xgraphics.BGRA {
-				x = x / term.cursor.width
-				y = y / term.cursor.height
-				if term.glyphs[y][x] != nil {
-					return term.glyphs[y][x].bg
-				} else {
-					return bg
-				}
-			})
-			box.XDraw()
+		if len(term.dirtyRows) == 0 {
+			for i := 0; i < term.height; i++ {
+				term.dirtyRows[i] = true
+			}
 		}
 
-		for i := term.top; i <= term.bot; i++ {
+		for i, _ := range term.dirtyRows {
+			rect := image.Rect(0, i*term.cursor.height, term.width*term.cursor.width, i*term.cursor.height+term.cursor.height)
+			box, ok := term.img.SubImage(rect).(*xgraphics.Image)
+			if ok {
+				box.For(func(x, y int) xgraphics.BGRA {
+					x = x / term.cursor.width
+					y = y / term.cursor.height
+					if term.glyphs[y][x] != nil {
+						return term.glyphs[y][x].bg
+					} else {
+						return bg
+					}
+				})
+				box.XDraw()
+			}
 			for j := 0; j < term.width; j++ {
 				g := term.glyphs[i][j]
 				if g != nil {
@@ -759,10 +773,11 @@ func (term *Terminal) Draw() {
 				}
 			}
 		}
+		term.dirtyRows = make(map[int]bool)
 		redraw = false
 	}
 	if needsDraw {
-		term.DrawCursor()
+		//		term.DrawCursor()
 		term.img.XDraw()
 		term.img.XPaint(term.window.Id)
 		needsDraw = false
