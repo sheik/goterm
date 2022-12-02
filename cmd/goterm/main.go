@@ -188,15 +188,13 @@ func NewTerminal() (term *Terminal, err error) {
 			}
 			if *debug {
 				if token.Type == TEXT {
-					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
+					//					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
 				} else {
-
-					if token.Type == COLOR_CODE {
-						if bytes.Contains(token.Literal[1:], []byte("\033")) {
-							fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
-						}
-						fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
-					}
+					//term.Draw()
+					//					if bytes.Contains(token.Literal[1:], []byte("\033")) {
+					//						fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
+					//					}
+					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
 				}
 			}
 
@@ -226,14 +224,36 @@ func NewTerminal() (term *Terminal, err error) {
 					term.cursor.X = 0
 				}
 				continue
-				/*
-					case DELETE_CHARACTERS:
-						// delete from cursor -> n
-						for i := term.cursor.X; i < term.width-1; i++ {
-							term.glyphs[term.cursor.Y][i] = term.glyphs[term.cursor.Y][i+1]
-						}*/
 			case INSERT_LINE:
 				term.ScrollUp()
+			case MOVE_TO_COL:
+				n := 1
+				if len(token.Literal) > 3 {
+					n, err = strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
+					if err != nil {
+						fmt.Println("could not determine n for col move")
+					}
+				}
+				term.cursor.X = n - 1
+			case CLEAR_LINE:
+				n := 0
+				if len(token.Literal) > 3 {
+					n, err = strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
+					if err != nil {
+						fmt.Println("unable to determine n for delete chars")
+						continue
+					}
+					fmt.Println("FOUND N:", n)
+				}
+
+				switch n {
+				case 0:
+					term.ClearRegion(term.cursor.X, term.cursor.Y, term.width-1, term.cursor.Y)
+				case 1:
+					term.ClearRegion(0, term.cursor.Y, term.cursor.X, term.cursor.Y)
+				case 2:
+					term.ClearRegion(0, term.cursor.Y, term.width-1, term.cursor.Y)
+				}
 			case COLOR_CODE:
 
 				// cursor <n> forward
@@ -248,18 +268,6 @@ func NewTerminal() (term *Terminal, err error) {
 					term.cursor.X += n
 					if term.cursor.X >= term.width {
 						term.cursor.X = term.width - 1
-					}
-				}
-				if bytes.Compare(token.Literal[1:], []byte("[K")) == 0 {
-					rect := image.Rect(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, term.width*term.cursor.width, term.cursor.Y*term.cursor.height+term.cursor.height)
-					box, ok := term.img.SubImage(rect).(*xgraphics.Image)
-					if ok {
-						box.For(func(x, y int) xgraphics.BGRA {
-							return bg
-						})
-					}
-					for i := term.cursor.X; i < term.width; i++ {
-						term.glyphs[term.cursor.Y][i] = nil
 					}
 				}
 
@@ -436,14 +444,15 @@ func NewTerminal() (term *Terminal, err error) {
 			case DELETE_LINES:
 				term.ScrollUp()
 			case DELETE_CHARS:
+				// TODO this function needs to be rewritten!
 				n, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
 				if err != nil {
 					fmt.Println("unable to determine n for delete chars")
 					continue
 				}
-				for i := term.cursor.X; i < n; i++ {
-					term.glyphs[term.cursor.Y][i] = nil
+				for i := term.cursor.X; i < term.cursor.X+n; i++ {
 				}
+
 				redraw = true
 			case CURSOR_ROW:
 				y, err := strconv.Atoi(string(token.Literal[2 : len(token.Literal)-1]))
@@ -620,6 +629,36 @@ func (term *Terminal) IncreaseY() {
 	} else {
 		term.cursor.Y += 1
 	}
+}
+
+func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
+	if y1 > 17 {
+		fmt.Println(x1, x2, y1, y2)
+	}
+	y1 = y1 + term.top
+	y2 = y2 + term.top
+
+	if x1 > x2 {
+		x1, x2 = x2, x1
+	}
+	if y1 > y2 {
+		y1, y2 = y2, y1
+	}
+
+	for i := y1; i <= y2; i++ {
+		for j := x1; j <= x2; j++ {
+			term.glyphs[i][j] = &Glyph{
+				X:       j,
+				Y:       i,
+				fg:      fg,
+				bg:      fg,
+				size:    size,
+				font:    term.font,
+				literal: []byte(" "),
+			}
+		}
+	}
+	redraw = true
 }
 
 func (term *Terminal) DrawCursor() {

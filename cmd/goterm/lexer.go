@@ -45,6 +45,8 @@ const (
 	INSERT_LINE             TokenType = "INSERT_LINE"
 	DELETE_LINES            TokenType = "DELETE_LINES"
 	DELETE_CHARS            TokenType = "DELETE_CHARS"
+	MOVE_TO_COL             TokenType = "MOVE_TO_COL"
+	CLEAR_LINE              TokenType = "CLEAR_LINE"
 )
 
 type State string
@@ -164,17 +166,30 @@ func (lexer *Lexer) Token() {
 				literal = []byte{}
 			}
 
-			if lexer.char == 'X' {
+			if lexer.char == 'P' {
 				state = IN_TEXT
 				lexer.tokenChan <- Token{Type: DELETE_CHARS, Literal: literal}
 				literal = []byte{}
 			}
 
-			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'K' || lexer.char == 'f' || lexer.char == '@' || lexer.char == 'C' || lexer.char == 't' || lexer.char == 'r' || lexer.char == 'G' {
+			if lexer.char == 'G' || lexer.char == '`' {
+				state = IN_TEXT
+				lexer.tokenChan <- Token{Type: MOVE_TO_COL, Literal: literal}
+				literal = []byte{}
+			}
+
+			if lexer.char == 'K' {
+				state = IN_TEXT
+				lexer.tokenChan <- Token{Type: CLEAR_LINE, Literal: literal}
+				literal = []byte{}
+			}
+
+			if lexer.char == 'm' || lexer.char == 'l' || lexer.char == 'h' || lexer.char == 'f' || lexer.char == '@' || lexer.char == 'C' || lexer.char == 't' || lexer.char == 'r' {
 				state = IN_TEXT
 				lexer.tokenChan <- Token{Type: COLOR_CODE, Literal: literal}
 				literal = []byte{}
 			}
+
 		case EPSON_SEQUENCE:
 			if lexer.char == 'B' {
 				state = IN_TEXT
