@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"log"
 )
@@ -75,7 +74,6 @@ func (lexer *Lexer) ReadChar() {
 		log.Fatal("reader error: ", err)
 	}
 	lexer.char = r
-	fmt.Println(string(lexer.char))
 }
 
 func (lexer *Lexer) Token() {
