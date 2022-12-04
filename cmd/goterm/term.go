@@ -277,7 +277,12 @@ func NewTerminal(inPty io.ReadWriter, ui UI, width, height int) (term *Terminal,
 
 					// Fill n characters after cursor with blanks
 					for i := 0; i < n; i++ {
-						term.ui.WriteText(term, (term.cursor.X*term.cursor.width)+i*term.cursor.width, term.cursor.Y*term.cursor.height, "\u2588")
+						term.ui.DrawRect(term,
+							term.cursor.X*term.cursor.width+i*term.cursor.width,
+							term.cursor.Y*term.cursor.height,
+							term.cursor.X*term.cursor.width+i*term.cursor.width+term.cursor.width,
+							term.cursor.Y*term.cursor.height+term.cursor.height,
+						)
 					}
 
 					redraw = true
@@ -482,11 +487,9 @@ func NewTerminal(inPty io.ReadWriter, ui UI, width, height int) (term *Terminal,
 					literal: token.Literal,
 				}
 
-				term.ui.WriteText(term, term.cursor.X, term.cursor.Y, string(token.Literal))
+				term.ui.WriteText(term, term.cursor.X, term.cursor.Y, fg, bg, string(token.Literal))
 
 				term.cursor.X += len(token.Literal)
-				//				redraw = true
-				//				term.dirtyRows[term.cursor.Y] = true
 			case CLEAR:
 				term.ui.Clear(term)
 				for i := 0; i < term.height; i++ {
@@ -639,9 +642,10 @@ type UI interface {
 	CreateWindow(term *Terminal) error
 	GetCursorSize() (int, int)
 	DrawCursor(*Terminal)
+	DrawRect(*Terminal, int, int, int, int)
 	EraseCursor(*Terminal)
 	Draw(term *Terminal)
-	WriteText(*Terminal, int, int, string)
+	WriteText(*Terminal, int, int, interface{}, interface{}, string)
 	Clear(*Terminal)
 	SetFont(string)
 }
@@ -666,17 +670,17 @@ func (x *XGBGui) Clear(term *Terminal) {
 	}
 }
 
-func (gui *XGBGui) WriteText(term *Terminal, x int, y int, text string) {
+func (gui *XGBGui) WriteText(term *Terminal, x int, y int, fg, bg interface{}, text string) {
 	rect := image.Rect(x*term.cursor.width, y*term.cursor.height, x*term.cursor.width+term.cursor.width, y*term.cursor.height+term.cursor.height)
 	box, ok := gui.img.SubImage(rect).(*xgraphics.Image)
 	if ok {
 		box.For(func(x, y int) xgraphics.BGRA {
-			return bg
+			return bg.(xgraphics.BGRA)
 		})
 		box.XDraw()
 	}
 
-	_, _, err := gui.img.Text(x*term.cursor.width, y*term.cursor.height, fg, size, gui.font, text)
+	_, _, err := gui.img.Text(x*term.cursor.width, y*term.cursor.height, fg.(xgraphics.BGRA), size, gui.font, text)
 
 	if err != nil {
 		log.Fatal(err)
@@ -752,6 +756,23 @@ func (x *XGBGui) EraseCursor(term *Terminal) {
 	needsDraw = true
 }
 
+func (gui *XGBGui) DrawRect(term *Terminal, x0, y0, x1, y1 int) {
+	rect := image.Rect(x0, y0, x1, y1)
+	box, ok := gui.img.SubImage(rect).(*xgraphics.Image)
+	if ok {
+		box.For(func(x, y int) xgraphics.BGRA {
+			x = x / term.cursor.width
+			y = y / term.cursor.height
+			if term.glyphs[y][x] != nil {
+				return term.glyphs[y][x].bg
+			} else {
+				return bg
+			}
+		})
+		box.XDraw()
+	}
+}
+
 func (x *XGBGui) Draw(term *Terminal) {
 	if redraw {
 		if len(term.dirtyRows) == 0 {
@@ -760,33 +781,14 @@ func (x *XGBGui) Draw(term *Terminal) {
 			}
 		}
 
-		for i, _ := range term.dirtyRows {
-			rect := image.Rect(0, i*term.cursor.height, term.width*term.cursor.width, i*term.cursor.height+term.cursor.height)
-			box, ok := x.img.SubImage(rect).(*xgraphics.Image)
-			if ok {
-				box.For(func(x, y int) xgraphics.BGRA {
-					x = x / term.cursor.width
-					y = y / term.cursor.height
-					if term.glyphs[y][x] != nil {
-						return term.glyphs[y][x].bg
-					} else {
-						return bg
-					}
-				})
-				box.XDraw()
-			}
+		for i := range term.dirtyRows {
+			x.DrawRect(term, 0, i*term.cursor.height, term.width*term.cursor.width, i*term.cursor.height+term.cursor.height)
 			for j := 0; j < term.width; j++ {
 				g := term.glyphs[i][j]
 				if g != nil {
-					_, _, err := x.img.Text(j*term.cursor.width, i*term.cursor.height, g.fg, size, x.font, string(g.literal))
-					if err != nil {
-						log.Fatal(err)
-					}
+					x.WriteText(term, j, i, g.fg, g.bg, string(g.literal))
 				} else {
-					_, _, err := x.img.Text(j*term.cursor.width, i*term.cursor.height, bg, size, x.font, "\u2588")
-					if err != nil {
-						log.Fatal(err)
-					}
+					x.DrawRect(term, j*term.cursor.width, i*term.cursor.height, j*term.cursor.width+term.cursor.width, i*term.cursor.height+term.cursor.height)
 				}
 			}
 		}
