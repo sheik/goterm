@@ -42,8 +42,6 @@ type Glyph struct {
 	Y       int
 	fg      xgraphics.BGRA
 	bg      xgraphics.BGRA
-	size    float64
-	font    *truetype.Font
 	literal []byte
 }
 
@@ -57,12 +55,7 @@ type Terminal struct {
 	glyphs    [][]*Glyph
 	dirtyRows map[int]bool
 
-	X           *xgbutil.XUtil
-	font        *truetype.Font
-	fontRegular *truetype.Font
-	fontBold    *truetype.Font
-	img         *xgraphics.Image
-	window      *xwindow.Window
+	ui UI
 
 	// top and bottom pointers (cursor Y values)
 	top int
@@ -79,34 +72,29 @@ type Cursor struct {
 var redraw = false
 var needsDraw = true
 
-func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err error) {
-	term = &Terminal{width: width, height: height, top: 0, bot: height - 1, pty: inPty}
+type XGBGui struct {
+	X           *xgbutil.XUtil
+	font        *truetype.Font
+	fontRegular *truetype.Font
+	fontBold    *truetype.Font
+	img         *xgraphics.Image
+	window      *xwindow.Window
+}
 
-	term.dirtyRows = make(map[int]bool)
-
-	term.glyphs = make([][]*Glyph, term.height+1)
-	for i := range term.glyphs {
-		term.glyphs[i] = make([]*Glyph, term.width+1)
-	}
-
-	reader := bufio.NewReader(term.pty)
-
-	term.X, err = xgbutil.NewConn()
+func (x *XGBGui) CreateWindow(term *Terminal) (err error) {
+	x.X, err = xgbutil.NewConn()
 	if err != nil {
-		return nil, err
+		return err
 	}
+	keybind.Initialize(x.X)
 
-	keybind.Initialize(term.X)
-
-	// Load some font. You may need to change the path depending upon your
-	// system configuration.
 	fontReader, err := os.Open(fontPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Now parse the font.
-	term.fontRegular, err = xgraphics.ParseFont(fontReader)
+	x.fontRegular, err = xgraphics.ParseFont(fontReader)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -116,14 +104,42 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 	if err != nil {
 		log.Fatal(err)
 	}
-	term.font = term.fontRegular
+	x.font = x.fontRegular
 
 	// Now parse the font.
-	term.fontBold, err = xgraphics.ParseFont(fontReader)
+	x.fontBold, err = xgraphics.ParseFont(fontReader)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fontReader.Close()
+
+	// set term width/height to full block
+	term.cursor.width, term.cursor.height = term.ui.GetCursorSize()
+
+	// Create some canvas.
+	x.img = xgraphics.New(x.X, image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height))
+	x.img.For(func(x, y int) xgraphics.BGRA {
+		return bg
+	})
+
+	// Now show the image in its own window.
+	x.window = x.img.XShowExtra("goterm", true)
+
+	x.window.Listen(xproto.EventMaskKeyPress, xproto.EventMaskKeyRelease)
+
+	xevent.KeyPressFun(x.KeyPressCallback(term)).Connect(x.X, x.window.Id)
+
+	return nil
+}
+
+func (x *XGBGui) GetCursorSize() (width, height int) {
+	return xgraphics.Extents(x.font, size, "\u2588")
+}
+
+func NewTerminal(inPty io.ReadWriter, ui UI, width, height int) (term *Terminal, err error) {
+	term = &Terminal{width: width, height: height, top: 0, bot: height - 1, pty: inPty}
+
+	term.ui = ui
 
 	term.cursor = Cursor{
 		width:  0,
@@ -132,32 +148,18 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 		Y:      0,
 	}
 
-	// set term width/height to full block
-	term.cursor.width, term.cursor.height = xgraphics.Extents(term.font, size, "\u2588")
+	term.dirtyRows = make(map[int]bool)
 
-	// Create some canvas.
-	term.img = xgraphics.New(term.X, image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height))
-	term.img.For(func(x, y int) xgraphics.BGRA {
-		return bg
-	})
+	term.glyphs = make([][]*Glyph, term.height+1)
+	for i := range term.glyphs {
+		term.glyphs[i] = make([]*Glyph, term.width+1)
+	}
 
-	// Now show the image in its own window.
-	term.window = term.img.XShowExtra("goterm", true)
+	fmt.Println(term.cursor.width, term.cursor.height)
 
-	term.window.Listen(xproto.EventMaskKeyPress, xproto.EventMaskKeyRelease)
+	term.ui.CreateWindow(term)
 
-	xevent.KeyPressFun(term.KeyPressCallback).Connect(term.X, term.window.Id)
-
-	/*  blinking cursor
-	go func() {
-		for {
-			time.Sleep(1 * time.Second)
-			term.DrawCursor()
-			time.Sleep(1 * time.Second)
-			term.EraseCursor()
-		}
-	}()
-	*/
+	reader := bufio.NewReader(term.pty)
 
 	// Goroutine that reads from pty
 	go func() {
@@ -169,22 +171,17 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 			select {
 			case <-time.After(time.Duration(i) * time.Microsecond):
 				if needsDraw || redraw {
-					term.Draw()
+					term.ui.Draw(term)
 				}
-				//				i += 1000
 				continue
 			case token = <-tokenChan:
-				//				i -= 10
 				needsDraw = true
 			}
+
 			if *debug {
 				if token.Type == TEXT {
-					//					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
+					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal)
 				} else {
-					//term.Draw()
-					//					if bytes.Contains(token.Literal[1:], []byte("\033")) {
-					//						fmt.Println("BAD ESCAPE CODE:", []byte(token.Literal))
-					//					}
 					fmt.Printf("%s %v \"%s\"\n", token.Type, []byte(token.Literal), token.Literal[1:])
 				}
 			}
@@ -194,7 +191,7 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 				continue
 			case RESET_INITIAL_STATE:
 				// reset title
-				ewmh.WmNameSet(term.X, term.window.Id, "none")
+				term.ui.SetWindowTitle("none")
 				// reset cursor
 				term.cursor.X = 0
 				term.cursor.Y = 0
@@ -202,14 +199,14 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 				term.bot = term.height - 1
 				// reset cols
 			case CR:
-				term.EraseCursor()
+				term.ui.EraseCursor(term)
 				term.cursor.X = 0
 			case LF:
-				term.EraseCursor()
+				term.ui.EraseCursor(term)
 				term.IncreaseY()
 				continue
 			case BACKSPACE:
-				term.EraseCursor()
+				term.ui.EraseCursor(term)
 				term.cursor.X -= 1
 				if term.cursor.X < 0 {
 					term.cursor.X = 0
@@ -280,7 +277,7 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 
 					// Fill n characters after cursor with blanks
 					for i := 0; i < n; i++ {
-						_, _, err = term.img.Text((term.cursor.X*term.cursor.width)+i*term.cursor.width, term.cursor.Y*term.cursor.height, fg, size, term.font, "\u2588")
+						term.ui.WriteText(term, (term.cursor.X*term.cursor.width)+i*term.cursor.width, term.cursor.Y*term.cursor.height, "\u2588")
 					}
 
 					redraw = true
@@ -319,21 +316,21 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 					if len(args) > 0 {
 						switch args[0] {
 						case "":
-							term.font = term.fontRegular
+							term.ui.SetFont("regular")
 							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
 							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 						case "0":
-							term.font = term.fontRegular
+							term.ui.SetFont("regular")
 							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
 							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 						case "00":
+							term.ui.SetFont("regular")
 							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
 							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
-							term.font = term.fontRegular
 						case "1":
-							term.font = term.fontBold
+							term.ui.SetFont("bold")
 						case "01":
-							term.font = term.fontBold
+							term.ui.SetFont("bold")
 						case "7":
 							fg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 							bg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
@@ -381,7 +378,7 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 				parts := strings.Split(string(token.Literal[2:len(token.Literal)-1]), ";")
 				switch parts[0] {
 				case "0":
-					ewmh.WmNameSet(term.X, term.window.Id, parts[1])
+					term.ui.SetWindowTitle(parts[1])
 				case "10":
 					if parts[1] == "?" {
 						// SEND CODES
@@ -394,7 +391,7 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 				//				position := fmt.Sprintf("\033%d;%dR", term.cursor.Y, term.cursor.X)
 				//				term.pty.WriteString(position)
 			case RESET_CURSOR:
-				term.EraseCursor()
+				term.ui.EraseCursor(term)
 				x := 1
 				y := 1
 				if bytes.Contains(token.Literal, []byte(";")) {
@@ -469,15 +466,6 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 					continue
 				}
 
-				rect := image.Rect(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, term.cursor.X*term.cursor.width+term.cursor.width, term.cursor.Y*term.cursor.height+term.cursor.height)
-				box, ok := term.img.SubImage(rect).(*xgraphics.Image)
-				if ok {
-					box.For(func(x, y int) xgraphics.BGRA {
-						return bg
-					})
-					box.XDraw()
-				}
-
 				if term.cursor.Y >= term.height {
 					term.cursor.Y = term.height - 1
 				}
@@ -491,28 +479,16 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 					Y:       term.cursor.Y,
 					fg:      fg,
 					bg:      bg,
-					size:    size,
-					font:    term.font,
 					literal: token.Literal,
 				}
 
-				_, _, err = term.img.Text(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, fg, size, term.font, string(token.Literal))
+				term.ui.WriteText(term, term.cursor.X, term.cursor.Y, string(token.Literal))
 
-				if err != nil {
-					log.Fatal(err)
-				}
 				term.cursor.X += len(token.Literal)
 				//				redraw = true
 				//				term.dirtyRows[term.cursor.Y] = true
 			case CLEAR:
-				rect := image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height)
-				box, ok := term.img.SubImage(rect).(*xgraphics.Image)
-				if ok {
-					box.For(func(x, y int) xgraphics.BGRA {
-						return bg
-					})
-					box.XDraw()
-				}
+				term.ui.Clear(term)
 				for i := 0; i < term.height; i++ {
 					for j := 0; j < term.width; j++ {
 						term.glyphs[i][j] = nil
@@ -525,72 +501,74 @@ func NewTerminal(inPty io.ReadWriter, width, height int) (term *Terminal, err er
 	return term, nil
 }
 
-func (term *Terminal) KeyPressCallback(X *xgbutil.XUtil, e xevent.KeyPressEvent) {
-	modStr := keybind.ModifierString(e.State)
-	keyStr := keybind.LookupString(X, e.State, e.Detail)
+func (x *XGBGui) KeyPressCallback(term *Terminal) func(*xgbutil.XUtil, xevent.KeyPressEvent) {
+	return func(X *xgbutil.XUtil, e xevent.KeyPressEvent) {
+		modStr := keybind.ModifierString(e.State)
+		keyStr := keybind.LookupString(X, e.State, e.Detail)
 
-	if keybind.KeyMatch(X, "Backspace", e.State, e.Detail) {
-		term.pty.Write([]byte{0x08})
-		return
-	}
-
-	if keybind.KeyMatch(X, "Escape", e.State, e.Detail) {
-		if e.State&xproto.ModMaskControl > 0 {
-			log.Println("Control-Escape detected. Quitting...")
-			xevent.Quit(X)
+		if keybind.KeyMatch(X, "Backspace", e.State, e.Detail) {
+			term.pty.Write([]byte{0x08})
+			return
 		}
-	}
 
-	if keybind.KeyMatch(X, "Return", e.State, e.Detail) {
-		term.pty.Write([]byte{'\n'})
-		return
-	}
-
-	if keybind.KeyMatch(X, "Escape", e.State, e.Detail) {
-		term.pty.Write([]byte{27})
-		return
-	}
-
-	if keybind.KeyMatch(X, "Tab", e.State, e.Detail) {
-		term.pty.Write([]byte{'\t'})
-		return
-	}
-
-	if len(modStr) > 0 {
-		if strings.Contains(modStr, "shift") {
-			reply, _ := xproto.GetKeyboardMapping(term.X.Conn(), e.Detail, 1).Reply()
-			chr := string(reply.Keysyms[1])
-			term.pty.Write([]byte(chr))
-		}
-		if strings.Contains(modStr, "control") {
-			switch keyStr {
-			case "a":
-				term.pty.Write([]byte{0x01})
-			case "c":
-				term.pty.Write([]byte{0x03})
-			case "d":
-				term.pty.Write([]byte{0x04})
-			case "l":
-				term.pty.Write([]byte{0x0C})
-			case "p":
-				term.pty.Write([]byte{0x10})
-			case "r":
-				term.pty.Write([]byte{0x12})
+		if keybind.KeyMatch(X, "Escape", e.State, e.Detail) {
+			if e.State&xproto.ModMaskControl > 0 {
+				log.Println("Control-Escape detected. Quitting...")
+				xevent.Quit(X)
 			}
 		}
-	} else {
-		switch keyStr {
-		case "Left":
-			term.pty.Write([]byte("\033[D"))
-		case "Up":
-			term.pty.Write([]byte("\033[A"))
-		case "Right":
-			term.pty.Write([]byte("\033[C"))
-		case "Down":
-			term.pty.Write([]byte("\033[B"))
+
+		if keybind.KeyMatch(X, "Return", e.State, e.Detail) {
+			term.pty.Write([]byte{'\n'})
+			return
 		}
-		if len(keyStr) == 1 {
-			term.pty.Write([]byte(keyStr))
+
+		if keybind.KeyMatch(X, "Escape", e.State, e.Detail) {
+			term.pty.Write([]byte{27})
+			return
+		}
+
+		if keybind.KeyMatch(X, "Tab", e.State, e.Detail) {
+			term.pty.Write([]byte{'\t'})
+			return
+		}
+
+		if len(modStr) > 0 {
+			if strings.Contains(modStr, "shift") {
+				reply, _ := xproto.GetKeyboardMapping(x.X.Conn(), e.Detail, 1).Reply()
+				chr := string(reply.Keysyms[1])
+				term.pty.Write([]byte(chr))
+			}
+			if strings.Contains(modStr, "control") {
+				switch keyStr {
+				case "a":
+					term.pty.Write([]byte{0x01})
+				case "c":
+					term.pty.Write([]byte{0x03})
+				case "d":
+					term.pty.Write([]byte{0x04})
+				case "l":
+					term.pty.Write([]byte{0x0C})
+				case "p":
+					term.pty.Write([]byte{0x10})
+				case "r":
+					term.pty.Write([]byte{0x12})
+				}
+			}
+		} else {
+			switch keyStr {
+			case "Left":
+				term.pty.Write([]byte("\033[D"))
+			case "Up":
+				term.pty.Write([]byte("\033[A"))
+			case "Right":
+				term.pty.Write([]byte("\033[C"))
+			case "Down":
+				term.pty.Write([]byte("\033[B"))
+			}
+			if len(keyStr) == 1 {
+				term.pty.Write([]byte(keyStr))
+			}
 		}
 	}
 }
@@ -646,8 +624,6 @@ func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
 				Y:       i,
 				fg:      fg,
 				bg:      bg,
-				size:    size,
-				font:    term.font,
 				literal: []byte(" "),
 			}
 		}
@@ -658,9 +634,62 @@ func (term *Terminal) ClearRegion(x1, y1, x2, y2 int) {
 	}
 }
 
-func (term *Terminal) DrawCursor() {
+type UI interface {
+	SetWindowTitle(string)
+	CreateWindow(term *Terminal) error
+	GetCursorSize() (int, int)
+	DrawCursor(*Terminal)
+	EraseCursor(*Terminal)
+	Draw(term *Terminal)
+	WriteText(*Terminal, int, int, string)
+	Clear(*Terminal)
+	SetFont(string)
+}
+
+func (x *XGBGui) SetFont(weight string) {
+	switch weight {
+	case "regular":
+		x.font = x.fontRegular
+	case "bold":
+		x.font = x.fontBold
+	}
+}
+
+func (x *XGBGui) Clear(term *Terminal) {
+	rect := image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height)
+	box, ok := x.img.SubImage(rect).(*xgraphics.Image)
+	if ok {
+		box.For(func(x, y int) xgraphics.BGRA {
+			return bg
+		})
+		box.XDraw()
+	}
+}
+
+func (gui *XGBGui) WriteText(term *Terminal, x int, y int, text string) {
+	rect := image.Rect(x*term.cursor.width, y*term.cursor.height, x*term.cursor.width+term.cursor.width, y*term.cursor.height+term.cursor.height)
+	box, ok := gui.img.SubImage(rect).(*xgraphics.Image)
+	if ok {
+		box.For(func(x, y int) xgraphics.BGRA {
+			return bg
+		})
+		box.XDraw()
+	}
+
+	_, _, err := gui.img.Text(x*term.cursor.width, y*term.cursor.height, fg, size, gui.font, text)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (x *XGBGui) SetWindowTitle(title string) {
+	ewmh.WmNameSet(x.X, x.window.Id, title)
+}
+
+func (x *XGBGui) DrawCursor(term *Terminal) {
 	rect := image.Rect(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, (term.cursor.X*term.cursor.width)+term.cursor.width, (term.cursor.Y*term.cursor.height)+term.cursor.height)
-	box, ok := term.img.SubImage(rect).(*xgraphics.Image)
+	box, ok := x.img.SubImage(rect).(*xgraphics.Image)
 	if ok {
 		box.For(func(x, y int) xgraphics.BGRA {
 			x = x / term.cursor.width
@@ -684,16 +713,16 @@ func (term *Terminal) DrawCursor() {
 
 	g := term.glyphs[term.cursor.Y][term.cursor.X]
 	if g != nil {
-		_, _, err := term.img.Text(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, g.bg, g.size, g.font, string(g.literal))
+		_, _, err := x.img.Text(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, g.bg, size, x.font, string(g.literal))
 		if err != nil {
 			panic(err)
 		}
 	}
 }
 
-func (term *Terminal) EraseCursor() {
+func (x *XGBGui) EraseCursor(term *Terminal) {
 	rect := image.Rect(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, (term.cursor.X*term.cursor.width)+term.cursor.width, (term.cursor.Y*term.cursor.height)+term.cursor.height)
-	box, ok := term.img.SubImage(rect).(*xgraphics.Image)
+	box, ok := x.img.SubImage(rect).(*xgraphics.Image)
 
 	if ok {
 		box.For(func(x, y int) xgraphics.BGRA {
@@ -715,7 +744,7 @@ func (term *Terminal) EraseCursor() {
 	}
 	g := term.glyphs[term.cursor.Y][term.cursor.X]
 	if g != nil {
-		_, _, err := term.img.Text(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, g.fg, g.size, g.font, string(g.literal))
+		_, _, err := x.img.Text(term.cursor.X*term.cursor.width, term.cursor.Y*term.cursor.height, g.fg, size, x.font, string(g.literal))
 		if err != nil {
 			panic(err)
 		}
@@ -723,7 +752,7 @@ func (term *Terminal) EraseCursor() {
 	needsDraw = true
 }
 
-func (term *Terminal) Draw() {
+func (x *XGBGui) Draw(term *Terminal) {
 	if redraw {
 		if len(term.dirtyRows) == 0 {
 			for i := 0; i < term.height; i++ {
@@ -733,7 +762,7 @@ func (term *Terminal) Draw() {
 
 		for i, _ := range term.dirtyRows {
 			rect := image.Rect(0, i*term.cursor.height, term.width*term.cursor.width, i*term.cursor.height+term.cursor.height)
-			box, ok := term.img.SubImage(rect).(*xgraphics.Image)
+			box, ok := x.img.SubImage(rect).(*xgraphics.Image)
 			if ok {
 				box.For(func(x, y int) xgraphics.BGRA {
 					x = x / term.cursor.width
@@ -749,12 +778,12 @@ func (term *Terminal) Draw() {
 			for j := 0; j < term.width; j++ {
 				g := term.glyphs[i][j]
 				if g != nil {
-					_, _, err := term.img.Text(j*term.cursor.width, i*term.cursor.height, g.fg, g.size, g.font, string(g.literal))
+					_, _, err := x.img.Text(j*term.cursor.width, i*term.cursor.height, g.fg, size, x.font, string(g.literal))
 					if err != nil {
 						log.Fatal(err)
 					}
 				} else {
-					_, _, err := term.img.Text(j*term.cursor.width, i*term.cursor.height, bg, size, term.font, "\u2588")
+					_, _, err := x.img.Text(j*term.cursor.width, i*term.cursor.height, bg, size, x.font, "\u2588")
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -765,9 +794,10 @@ func (term *Terminal) Draw() {
 		redraw = false
 	}
 	if needsDraw {
-		term.DrawCursor()
-		term.img.XDraw()
-		term.img.XPaint(term.window.Id)
+		term.ui.DrawCursor(term)
+		x.img.XDraw()
+		x.img.XDraw()
+		x.img.XPaint(x.window.Id)
 		needsDraw = false
 	}
 }

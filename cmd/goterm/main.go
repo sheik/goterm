@@ -62,7 +62,7 @@ func main() {
 
 	width := 120
 	height := 34
-	var t *Terminal
+	var gui = &XGBGui{}
 	var s *SSH
 
 	if *sshClient {
@@ -124,7 +124,7 @@ func main() {
 		time.Sleep(1 * time.Second)
 		//		session.Run("/bin/bash")
 
-		t, err = NewTerminal(s, width, height)
+		_, err = NewTerminal(s, gui, width, height)
 		if err != nil {
 			log.Fatal("failed to start terminal:", err)
 		}
@@ -144,7 +144,7 @@ func main() {
 			Y:    0,
 		})
 
-		t, err = NewTerminal(localPty, width, height)
+		_, err = NewTerminal(localPty, gui, width, height)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -155,5 +155,5 @@ func main() {
 	// All we really need to do is block, which could be achieved using
 	// 'select{}'. Invoking the main event loop however, will emit error
 	// message if anything went seriously wrong above.
-	xevent.Main(t.X)
+	xevent.Main(gui.X)
 }
