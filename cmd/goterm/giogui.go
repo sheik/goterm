@@ -1,17 +1,18 @@
 package main
 
 import (
-	"image"
-	"image/color"
+	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"gioui.org/app"
 	"gioui.org/font/gofont"
+	"gioui.org/io/key"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
 )
@@ -23,7 +24,7 @@ type GioGUI struct {
 }
 
 func (gui *GioGUI) SetWindowTitle(title string) {
-	gui.window.Option(app.Title(title))
+	// gui.window.Option(app.Title(title))
 }
 
 func (gui *GioGUI) CreateWindow(term *Terminal) error {
@@ -35,43 +36,79 @@ func (gui *GioGUI) CreateWindow(term *Terminal) error {
 		}
 		os.Exit(0)
 	}()
-
+	go app.Main()
 	return nil
 }
 
 func (gui *GioGUI) run(term *Terminal) error {
-	w := gui.window
 	th := material.NewTheme(gofont.Collection())
 	var ops op.Ops
 	for {
-		e := <-w.Events()
+		e := <-gui.window.Events()
 		switch e := e.(type) {
 		case system.DestroyEvent:
 			return e.Err
 		case system.FrameEvent:
+			ops.Reset()
+
 			gtx := layout.NewContext(&ops, e)
+
+			for _, gtxEvent := range gtx.Events(gui.window) {
+				switch e := gtxEvent.(type) {
+				case key.Event:
+					if e.State.String() == "Press" {
+						char := strings.ToLower(e.Name)
+						if e.Name == "Space" {
+							char = " "
+						}
+						if e.Name == key.NameReturn {
+							char = "\n"
+						}
+						fmt.Println(char)
+						term.pty.Write([]byte(char))
+					}
+				}
+			}
+
 			if gui.gtx != nil {
 				gtx = *gui.gtx
 			}
 
-			title := material.H1(th, "Hello, Gio")
-			maroon := color.NRGBA{R: 127, G: 0, B: 0, A: 255}
-			title.Color = maroon
-			title.Alignment = text.Middle
-			title.Layout(gtx)
-
+			margins := layout.Inset{
+				Top:    1,
+				Bottom: 1,
+				Left:   1,
+				Right:  1,
+			}
 			h := layout.Flex{}
 			l := []layout.FlexChild{}
-			for _, text := range gui.text {
-				op.Offset(image.Pt(100, 0))
-				label := material.Label(th, unit.Sp(12), text)
-				l = append(l, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return label.Layout(gtx)
-				}))
+
+			for i := 0; i < term.height; i++ {
+				for j := 0; j < term.width; j++ {
+					if term.glyphs[i][j] != nil {
+						label := material.Label(th, unit.Sp(12), string(term.glyphs[i][j].literal))
+						label.Font = gofont.Collection()[6].Font
+						l = append(l, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return label.Layout(gtx)
+						}))
+					}
+				}
 			}
-			h.Layout(gtx, l...)
+			margins.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return h.Layout(gtx, l...)
+			})
 
 			gui.text = []string{}
+			key.FocusOp{
+				Tag: gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
+			}.Add(gtx.Ops)
+
+			// Specify keys for key.Event
+			// Other keys are caught as key.EditEvent
+			key.InputOp{
+				Keys: key.Set("A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|-|Space|" + key.NameReturn),
+				Tag:  gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
+			}.Add(gtx.Ops)
 
 			e.Frame(gtx.Ops)
 		}
@@ -79,7 +116,9 @@ func (gui *GioGUI) run(term *Terminal) error {
 }
 
 func (gui *GioGUI) Main() {
-	app.Main()
+	for {
+		time.Sleep(10 * time.Second)
+	}
 }
 
 func (gui *GioGUI) GetCursorSize() (int, int) {
