@@ -14,4 +14,5 @@ type UI interface {
 	WriteText(*Terminal, int, int, interface{}, interface{}, string)
 	Clear(*Terminal)
 	SetFont(string)
+	Main()
 }

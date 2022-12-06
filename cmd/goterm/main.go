@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/sheik/xgbutil/xevent"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -62,7 +61,8 @@ func main() {
 
 	width := 120
 	height := 34
-	var gui = &XGBGui{}
+	//	var gui = &XGBGui{}
+	var gui = &GioGUI{}
 	var s *SSH
 
 	if *sshClient {
@@ -152,8 +152,6 @@ func main() {
 	}
 
 	os.Setenv("TERM", "xterm-256color")
-	// All we really need to do is block, which could be achieved using
-	// 'select{}'. Invoking the main event loop however, will emit error
-	// message if anything went seriously wrong above.
-	xevent.Main(gui.X)
+
+	gui.Main()
 }
