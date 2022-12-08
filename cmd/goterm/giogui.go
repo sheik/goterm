@@ -76,6 +76,13 @@ func (gui *GioGUI) run(term *Terminal) error {
 								char = "\x12"
 							}
 						}
+						fmt.Println(e.Modifiers.String())
+						if e.Modifiers.String() == "Shift" {
+							char = strings.ToUpper(char)
+							if char == "-" {
+								char = "_"
+							}
+						}
 						if e.Name == "Space" {
 							char = " "
 						}
@@ -121,7 +128,7 @@ func (gui *GioGUI) run(term *Terminal) error {
 						th.Bg = color.NRGBA{
 							R: 0x00,
 							G: 0x00,
-							B: 0,
+							B: 0x00,
 							A: 0xff,
 						}
 						th.Fg = color.NRGBA{
@@ -148,8 +155,11 @@ func (gui *GioGUI) run(term *Terminal) error {
 			// Specify keys for key.Event
 			// Other keys are caught as key.EditEvent
 			key.InputOp{
-				Keys: key.Set("A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|-|Space|Ctrl-D|Ctrl-L|Ctrl-A|Ctrl-C|Ctrl-P|Ctrl-R|" + strings.Join([]string{key.NameReturn, key.NameDeleteBackward}, "|")),
-				Tag:  gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
+				Keys: key.Set(
+					"(Shift)-(Ctrl)-A|(Shift)-(Ctrl)-B|(Shift)-(Ctrl)-C|(Shift)-(Ctrl)-D|(Shift)-(Ctrl)-E|(Shift)-(Ctrl)-F|(Shift)-(Ctrl)-G|(Shift)-(Ctrl)-H|(Shift)-(Ctrl)-I|(Shift)-(Ctrl)-J|(Shift)-(Ctrl)-K|(Shift)-(Ctrl)-L|(Shift)-(Ctrl)-M|(Shift)-(Ctrl)-N|(Shift)-(Ctrl)-O|(Shift)-(Ctrl)-P|(Shift)-(Ctrl)-Q|(Shift)-(Ctrl)-R|(Shift)-(Ctrl)-S|(Shift)-(Ctrl)-T|(Shift)-(Ctrl)-U|(Shift)-(Ctrl)-V|(Shift)-(Ctrl)-W|(Shift)-(Ctrl)-X|(Shift)-(Ctrl)-Y|(Shift)-(Ctrl)-Z|" +
+						"(Shift)--|Ctrl--|-|Shift-_|(Shift)-(Ctrl)-.|Space|" +
+						strings.Join([]string{key.NameReturn, key.NameDeleteBackward}, "|")),
+				Tag: gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
 			}.Add(gtx.Ops)
 
 			e.Frame(gtx.Ops)
