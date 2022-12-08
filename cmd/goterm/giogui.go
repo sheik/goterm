@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"log"
 	"os"
 	"strings"
@@ -58,8 +59,28 @@ func (gui *GioGUI) run(term *Terminal) error {
 				case key.Event:
 					if e.State.String() == "Press" {
 						char := strings.ToLower(e.Name)
+						if e.Modifiers.String() == "Ctrl" {
+							fmt.Println(e.Name)
+							switch e.Name {
+							case "A":
+								char = "\x01"
+							case "C":
+								char = "\x03"
+							case "D":
+								char = "\x04"
+							case "L":
+								char = "\x0C"
+							case "P":
+								char = "\x10"
+							case "R":
+								char = "\x12"
+							}
+						}
 						if e.Name == "Space" {
 							char = " "
+						}
+						if e.Name == key.NameDeleteBackward {
+							char = "\x08"
 						}
 						if e.Name == key.NameReturn {
 							char = "\n"
@@ -97,6 +118,18 @@ func (gui *GioGUI) run(term *Terminal) error {
 								literal: []byte{' '},
 							}
 						}
+						th.Bg = color.NRGBA{
+							R: 0x00,
+							G: 0x00,
+							B: 0,
+							A: 0xff,
+						}
+						th.Fg = color.NRGBA{
+							R: term.glyphs[index][i].fg.R,
+							G: term.glyphs[index][i].fg.G,
+							B: term.glyphs[index][i].fg.B,
+							A: term.glyphs[index][i].fg.A,
+						}
 						label := material.Label(th, unit.Sp(12), string(term.glyphs[index][i].literal))
 						label.Font = gofont.Collection()[6].Font
 						l = append(l, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -115,7 +148,7 @@ func (gui *GioGUI) run(term *Terminal) error {
 			// Specify keys for key.Event
 			// Other keys are caught as key.EditEvent
 			key.InputOp{
-				Keys: key.Set("A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|-|Space|" + key.NameReturn),
+				Keys: key.Set("A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|-|Space|Ctrl-D|Ctrl-L|Ctrl-A|Ctrl-C|Ctrl-P|Ctrl-R|" + strings.Join([]string{key.NameReturn, key.NameDeleteBackward}, "|")),
 				Tag:  gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
 			}.Add(gtx.Ops)
 
