@@ -76,7 +76,6 @@ func (gui *GioGUI) run(term *Terminal) error {
 								char = "\x12"
 							}
 						}
-						fmt.Println(e.Modifiers.String())
 						if e.Modifiers.String() == "Shift" {
 							char = strings.ToUpper(char)
 							if char == "-" {
@@ -92,7 +91,11 @@ func (gui *GioGUI) run(term *Terminal) error {
 						if e.Name == key.NameReturn {
 							char = "\n"
 						}
-						fmt.Println(char)
+						if e.Name == key.NameEscape {
+							char = string([]byte{27})
+							fmt.Println("ESCAPE!")
+						}
+						//						fmt.Println(char)
 						term.pty.Write([]byte(char))
 					}
 				}
@@ -157,7 +160,7 @@ func (gui *GioGUI) run(term *Terminal) error {
 			key.InputOp{
 				Keys: key.Set(
 					"(Shift)-(Ctrl)-A|(Shift)-(Ctrl)-B|(Shift)-(Ctrl)-C|(Shift)-(Ctrl)-D|(Shift)-(Ctrl)-E|(Shift)-(Ctrl)-F|(Shift)-(Ctrl)-G|(Shift)-(Ctrl)-H|(Shift)-(Ctrl)-I|(Shift)-(Ctrl)-J|(Shift)-(Ctrl)-K|(Shift)-(Ctrl)-L|(Shift)-(Ctrl)-M|(Shift)-(Ctrl)-N|(Shift)-(Ctrl)-O|(Shift)-(Ctrl)-P|(Shift)-(Ctrl)-Q|(Shift)-(Ctrl)-R|(Shift)-(Ctrl)-S|(Shift)-(Ctrl)-T|(Shift)-(Ctrl)-U|(Shift)-(Ctrl)-V|(Shift)-(Ctrl)-W|(Shift)-(Ctrl)-X|(Shift)-(Ctrl)-Y|(Shift)-(Ctrl)-Z|" +
-						"(Shift)--|Ctrl--|-|Shift-_|(Shift)-(Ctrl)-.|Space|" +
+						"(Shift)--|Ctrl--|-|Shift-_|(Shift)-(Ctrl)-.|" + key.NameEscape + "|(Shift)-:|;|Space|" +
 						strings.Join([]string{key.NameReturn, key.NameDeleteBackward}, "|")),
 				Tag: gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
 			}.Add(gtx.Ops)
