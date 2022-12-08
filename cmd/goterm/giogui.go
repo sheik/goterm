@@ -75,27 +75,36 @@ func (gui *GioGUI) run(term *Terminal) error {
 			}
 
 			margins := layout.Inset{
-				Top:    1,
-				Bottom: 1,
-				Left:   1,
-				Right:  1,
+				Top:    0,
+				Bottom: 0,
+				Left:   0,
+				Right:  0,
 			}
 			h := layout.Flex{}
-			l := []layout.FlexChild{}
 
-			for i := 0; i < term.height; i++ {
-				for j := 0; j < term.width; j++ {
-					if term.glyphs[i][j] != nil {
-						label := material.Label(th, unit.Sp(12), string(term.glyphs[i][j].literal))
+			var visList = layout.List{
+				Axis: layout.Vertical,
+			}
+
+			margins.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return visList.Layout(gtx, len(term.glyphs), func(gtx layout.Context, index int) layout.Dimensions {
+					l := []layout.FlexChild{}
+					for i := 0; i < term.width; i++ {
+						if term.glyphs[index][i] == nil {
+							term.glyphs[index][i] = &Glyph{
+								X:       i,
+								Y:       index,
+								literal: []byte{' '},
+							}
+						}
+						label := material.Label(th, unit.Sp(12), string(term.glyphs[index][i].literal))
 						label.Font = gofont.Collection()[6].Font
 						l = append(l, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return label.Layout(gtx)
 						}))
 					}
-				}
-			}
-			margins.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return h.Layout(gtx, l...)
+					return h.Layout(gtx, l...)
+				})
 			})
 
 			gui.text = []string{}
@@ -115,7 +124,7 @@ func (gui *GioGUI) run(term *Terminal) error {
 	}
 }
 
-func (gui *GioGUI) Main() {
+func (gui *GioGUI) Main(term *Terminal) {
 	for {
 		time.Sleep(10 * time.Second)
 	}
@@ -144,6 +153,9 @@ func (gui *GioGUI) UpdateDisplay(term *Terminal) {
 
 func (gui *GioGUI) WriteText(term *Terminal, _ int, _ int, _ interface{}, _ interface{}, text string) {
 	gui.text = append(gui.text, text)
+	if gui.window != nil {
+		gui.window.Invalidate()
+	}
 }
 
 func (gui *GioGUI) Clear(term *Terminal) {

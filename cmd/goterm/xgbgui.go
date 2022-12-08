@@ -97,6 +97,10 @@ func (x *XGBGui) KeyPressCallback(term *Terminal) func(*xgbutil.XUtil, xevent.Ke
 	}
 }
 
+func (x *XGBGui) Main(term *Terminal) {
+	xevent.Main(x.X)
+}
+
 func (x *XGBGui) CreateWindow(term *Terminal) (err error) {
 	x.X, err = xgbutil.NewConn()
 	if err != nil {

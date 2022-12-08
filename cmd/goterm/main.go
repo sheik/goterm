@@ -64,6 +64,7 @@ func main() {
 	//	var gui = &XGBGui{}
 	var gui = &GioGUI{}
 	var s *SSH
+	var t *Terminal
 
 	if *sshClient {
 		fmt.Print("Enter Password: ")
@@ -124,7 +125,7 @@ func main() {
 		time.Sleep(1 * time.Second)
 		//		session.Run("/bin/bash")
 
-		_, err = NewTerminal(s, gui, width, height)
+		t, err = NewTerminal(s, gui, width, height)
 		if err != nil {
 			log.Fatal("failed to start terminal:", err)
 		}
@@ -144,7 +145,7 @@ func main() {
 			Y:    0,
 		})
 
-		_, err = NewTerminal(localPty, gui, width, height)
+		t, err = NewTerminal(localPty, gui, width, height)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -153,5 +154,5 @@ func main() {
 
 	os.Setenv("TERM", "xterm-256color")
 
-	gui.Main()
+	gui.Main(t)
 }
