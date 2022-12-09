@@ -84,6 +84,9 @@ func (gui *GioGUI) run(term *Terminal) error {
 							if char == ";" {
 								char = ":"
 							}
+							if char == "1" {
+								char = "!"
+							}
 						}
 						if e.Name == "Space" {
 							char = " "
