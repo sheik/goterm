@@ -139,7 +139,7 @@ func (x *XGBGui) CreateWindow(term *Terminal) (err error) {
 	// Create some canvas.
 	x.img = xgraphics.New(x.X, image.Rect(0, 0, term.width*term.cursor.width, term.height*term.cursor.height))
 	x.img.For(func(x, y int) xgraphics.BGRA {
-		return bg
+		return *bg
 	})
 
 	// Now show the image in its own window.
@@ -170,7 +170,7 @@ func (x *XGBGui) Clear(term *Terminal) {
 	box, ok := x.img.SubImage(rect).(*xgraphics.Image)
 	if ok {
 		box.For(func(x, y int) xgraphics.BGRA {
-			return bg
+			return *bg
 		})
 		box.XDraw()
 	}
@@ -230,9 +230,9 @@ func (x *XGBGui) EraseCursor(term *Terminal) {
 			x = x / term.cursor.width
 			y = y / term.cursor.height
 			if term.glyphs[y][x] != nil {
-				return term.glyphs[y][x].bg
+				return *(term.glyphs[y][x].bg)
 			} else {
-				return bg
+				return *bg
 			}
 		})
 		box.XDraw()
@@ -262,9 +262,9 @@ func (gui *XGBGui) DrawRect(term *Terminal, redraw bool, color interface{}, x0, 
 				x = x / term.cursor.width
 				y = y / term.cursor.height
 				if term.glyphs[y][x] != nil {
-					return term.glyphs[y][x].bg
+					return *(term.glyphs[y][x].bg)
 				} else {
-					return bg
+					return *bg
 				}
 			} else {
 				return color.(xgraphics.BGRA)

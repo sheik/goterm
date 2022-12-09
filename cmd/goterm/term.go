@@ -14,14 +14,14 @@ import (
 
 var (
 	// The background color of the canvas.
-	bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+	bg = &xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 
 	// The path to the font used to draw text.
 	fontPath     = "/usr/share/fonts/truetype/firacode/FiraCode-Regular.ttf"
 	fontPathBold = "/usr/share/fonts/truetype/firacode/FiraCode-SemiBold.ttf"
 
 	// The color of the text.
-	fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+	fg = &xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
 
 	// The size of the text.
 	size = 13.0
@@ -30,8 +30,8 @@ var (
 type Glyph struct {
 	X       int
 	Y       int
-	fg      xgraphics.BGRA
-	bg      xgraphics.BGRA
+	fg      *xgraphics.BGRA
+	bg      *xgraphics.BGRA
 	literal []byte
 }
 
@@ -249,46 +249,49 @@ func NewTerminal(inPty io.ReadWriter, ui UI, width, height int) (term *Terminal,
 						switch args[0] {
 						case "":
 							term.ui.SetFont("regular")
-							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
-							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = nil
 						case "0":
 							term.ui.SetFont("regular")
-							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
-							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = nil
 						case "00":
 							term.ui.SetFont("regular")
-							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
-							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = nil
 						case "1":
 							term.ui.SetFont("bold")
 						case "01":
 							term.ui.SetFont("bold")
 						case "7":
-							fg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
-							bg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = fg
+							fg = &xgraphics.BGRA{B: 0xff - bg.B, G: 0xff - bg.G, R: 0xff - bg.R, A: 0xff}
 						case "27":
-							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
-							bg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+							fg = bg
+							bg = nil
 						case "32":
-							fg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+							bg = nil
 						case "34":
-							fg = xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
+							bg = nil
 						case "39":
-							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							bg = nil
 						case "42":
-							bg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+							bg = &xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
 						}
 					}
 					if len(args) > 1 {
 						switch args[1] {
 						case "32":
-							fg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
 						case "34":
-							fg = xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
 						case "39":
-							fg = xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x22, G: 0x22, R: 0x22, A: 0xff}
 						case "42":
-							bg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+							bg = &xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
 						}
 
 					}
@@ -296,11 +299,11 @@ func NewTerminal(inPty io.ReadWriter, ui UI, width, height int) (term *Terminal,
 						fmt.Println("SET BACKGROUND:", args[2])
 						switch args[2] {
 						case "32":
-							fg = xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0x00, G: 0xff, R: 0x00, A: 0xff}
 						case "34":
-							fg = xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0xff, G: 0x00, R: 0x00, A: 0xff}
 						case "39":
-							fg = xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
+							fg = &xgraphics.BGRA{B: 0xdd, G: 0xff, R: 0xff, A: 0xff}
 						}
 					}
 				}

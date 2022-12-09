@@ -128,20 +128,32 @@ func (gui *GioGUI) run(term *Terminal) error {
 								literal: []byte{' '},
 							}
 						}
-						th.Bg = color.NRGBA{
-							R: 0x00,
-							G: 0x00,
-							B: 0x00,
-							A: 0xff,
+
+						if term.glyphs[index][i].bg != nil {
+							th.Bg = color.NRGBA{
+								R: term.glyphs[index][i].bg.R,
+								G: term.glyphs[index][i].bg.G,
+								B: term.glyphs[index][i].bg.B,
+								A: term.glyphs[index][i].bg.A,
+							}
+						} else {
+							th.Bg = color.NRGBA{}
 						}
-						th.Fg = color.NRGBA{
-							R: term.glyphs[index][i].fg.R,
-							G: term.glyphs[index][i].fg.G,
-							B: term.glyphs[index][i].fg.B,
-							A: term.glyphs[index][i].fg.A,
+
+						if term.glyphs[index][i].fg != nil {
+							th.Fg = color.NRGBA{
+								R: term.glyphs[index][i].fg.R,
+								G: term.glyphs[index][i].fg.G,
+								B: term.glyphs[index][i].fg.B,
+								A: term.glyphs[index][i].fg.A,
+							}
+						} else {
+							th.Fg = color.NRGBA{}
 						}
-						label := material.Label(th, unit.Sp(12), string(term.glyphs[index][i].literal))
-						label.Font = gofont.Collection()[6].Font
+
+						//						label := material.Label(th, unit.Sp(12), string(term.glyphs[index][i].literal))
+						//						label.Font = gofont.Collection()[6].Font
+						label := NewTerminalChar(th, string(term.glyphs[index][i].literal))
 						l = append(l, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return label.Layout(gtx)
 						}))
@@ -158,11 +170,8 @@ func (gui *GioGUI) run(term *Terminal) error {
 			// Specify keys for key.Event
 			// Other keys are caught as key.EditEvent
 			key.InputOp{
-				Keys: key.Set(
-					"(Shift)-(Ctrl)-A|(Shift)-(Ctrl)-B|(Shift)-(Ctrl)-C|(Shift)-(Ctrl)-D|(Shift)-(Ctrl)-E|(Shift)-(Ctrl)-F|(Shift)-(Ctrl)-G|(Shift)-(Ctrl)-H|(Shift)-(Ctrl)-I|(Shift)-(Ctrl)-J|(Shift)-(Ctrl)-K|(Shift)-(Ctrl)-L|(Shift)-(Ctrl)-M|(Shift)-(Ctrl)-N|(Shift)-(Ctrl)-O|(Shift)-(Ctrl)-P|(Shift)-(Ctrl)-Q|(Shift)-(Ctrl)-R|(Shift)-(Ctrl)-S|(Shift)-(Ctrl)-T|(Shift)-(Ctrl)-U|(Shift)-(Ctrl)-V|(Shift)-(Ctrl)-W|(Shift)-(Ctrl)-X|(Shift)-(Ctrl)-Y|(Shift)-(Ctrl)-Z|" +
-						"(Shift)--|Ctrl--|-|Shift-_|(Shift)-(Ctrl)-.|" + key.NameEscape + "|(Shift)-:|;|Space|" +
-						strings.Join([]string{key.NameReturn, key.NameDeleteBackward}, "|")),
-				Tag: gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
+				Keys: key.Set(registered_keys),
+				Tag:  gui.window, // Use the window as the event routing tag. This means we can call gtx.Events(w) and get these events.
 			}.Add(gtx.Ops)
 
 			e.Frame(gtx.Ops)
