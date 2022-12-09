@@ -38,5 +38,5 @@ var registered_keys = "(Shift)-(Ctrl)-A|" +
 	"Shift-_|" +
 	"(Shift)-(Ctrl)-.|" +
 	key.NameEscape + "|" +
-	"(Shift)-:|;|Space|" +
+	"(Shift)-:|;|:|(Shift)-;|Space|" +
 	strings.Join([]string{key.NameReturn, key.NameDeleteBackward}, "|")

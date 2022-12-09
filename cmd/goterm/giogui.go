@@ -119,7 +119,7 @@ func (gui *GioGUI) run(term *Terminal) error {
 
 			margins.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return visList.Layout(gtx, len(term.glyphs), func(gtx layout.Context, index int) layout.Dimensions {
-					l := []layout.FlexChild{}
+					var l []layout.FlexChild
 					for i := 0; i < term.width; i++ {
 						if term.glyphs[index][i] == nil {
 							term.glyphs[index][i] = &Glyph{
@@ -151,8 +151,6 @@ func (gui *GioGUI) run(term *Terminal) error {
 							th.Fg = color.NRGBA{}
 						}
 
-						//						label := material.Label(th, unit.Sp(12), string(term.glyphs[index][i].literal))
-						//						label.Font = gofont.Collection()[6].Font
 						label := NewTerminalChar(th, string(term.glyphs[index][i].literal))
 						l = append(l, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return label.Layout(gtx)
