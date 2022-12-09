@@ -32,6 +32,8 @@ var registered_keys = "(Shift)-(Ctrl)-A|" +
 	"(Shift)-(Ctrl)-Y|" +
 	"(Shift)-(Ctrl)-Z|" +
 	"(Shift)-!|" +
+	"(Shift)-1|" +
+	"1|" +
 	"(Shift)--|" +
 	"Ctrl--|" +
 	"-|" +
